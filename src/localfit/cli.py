@@ -867,16 +867,31 @@ def _boot_screen():
 
     model_mb = 0
     model_name = "none running"
+    model_source = ""
     if srv["running"]:
         mi = _detect_model_info(srv, None)
         model_mb = int((mi.get("size_gb") or 0) * 1024)
-        model_name = mi["name"] or "?"
-        if mi.get("quant"):
+        # Build friendly name from model info
+        name = mi.get("name") or ""
+        if not name or name == "?":
+            # Try to get from /v1/models API
+            try:
+                import urllib.request as _ur
+                with _ur.urlopen("http://127.0.0.1:8089/v1/models", timeout=2) as _r:
+                    _md = json.loads(_r.read())
+                    _mid = _md.get("data", [{}])[0].get("id", "")
+                    if _mid:
+                        # Clean up: gemma-4-E4B-it-UD-Q8_K_XL.gguf → Gemma 4 E4B Q8_K_XL
+                        name = _mid.replace(".gguf", "").replace("-it-UD-", " ").replace("-it-", " ").replace("-", " ")
+            except Exception:
+                pass
+        model_name = name or "model"
+        if mi.get("quant") and mi["quant"] not in model_name:
             model_name += f" {mi['quant']}"
         if mi.get("size_gb"):
             model_name += f" {mi['size_gb']}GB"
-        model_name += " [green](local)[/]"
-    elif not srv["running"]:
+        model_source = "local"
+    else:
         # Check for active remote session
         try:
             _kaggle_state = Path.home() / ".localfit" / "active_kaggle.json"
@@ -885,9 +900,11 @@ def _boot_screen():
                 _ep = _ks.get("endpoint", "")
                 _km = _ks.get("model", "?")
                 if _ep:
-                    model_name = f"{_km} [magenta](Kaggle remote)[/]"
+                    model_name = f"{_km} (Kaggle)"
+                    model_source = "kaggle"
                 else:
-                    model_name = f"{_km} [yellow](Kaggle starting...)[/]"
+                    model_name = f"{_km} (starting...)"
+                    model_source = "kaggle"
         except Exception:
             pass
     kv_mb = diag.get("kv_cache_est_mb", 0)
@@ -911,7 +928,7 @@ def _boot_screen():
     else:
         if used_mb:
             gpu_line = f"{used_mb // 1024}/{gpu_total // 1024}GB used · {free_mb // 1024}GB free"
-        elif "remote" in model_name.lower() or "kaggle" in model_name.lower():
+        elif model_source in ("kaggle", "runpod"):
             gpu_line = f"{gpu_total // 1024}GB total · model on remote GPU"
         else:
             gpu_line = f"{gpu_total // 1024}GB total · no model loaded"
