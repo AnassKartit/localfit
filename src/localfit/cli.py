@@ -1968,22 +1968,12 @@ def _launch_tool_with_endpoint(tool, api_base, model_name="localmodel"):
                 env={**os.environ, **get_claude_launch_env(api_base=f"http://127.0.0.1:{PROXY_PORT}")})
 
     elif tool in ("opencode",):
-        # Write opencode config pointing at the endpoint
-        config_path = os.path.expanduser("~/.config/opencode/opencode.json")
-        os.makedirs(os.path.dirname(config_path), exist_ok=True)
-        import json as _json
-        _json.dump({
-            "$schema": "https://opencode.ai/config.json",
-            "model": "llamacpp/remote",
-            "provider": {"llamacpp": {
-                "name": "LocalFit Remote",
-                "npm": "@ai-sdk/openai-compatible",
-                "options": {"baseURL": api_base},
-                "models": {"remote": {"name": model_name, "tool_call": True}},
-            }},
-        }, open(config_path, "w"), indent=2)
-        console.print(f"  [green]✓[/] OpenCode configured: {config_path}")
-        subprocess.Popen(["opencode"], env=os.environ.copy())
+        # Use env vars only — don't touch user's opencode config
+        env = os.environ.copy()
+        env["OPENAI_BASE_URL"] = api_base
+        env["OPENAI_API_KEY"] = "no-key-required"
+        console.print(f"  [green]✓[/] OpenCode → {api_base}")
+        subprocess.Popen(["opencode"], env=env)
 
     elif tool in ("codex",):
         env = os.environ.copy()
