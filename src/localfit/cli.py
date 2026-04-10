@@ -1217,16 +1217,9 @@ def _boot_screen():
 
             picked = _arrow_tool_picker()
             if picked:
-                if _remote_ep and picked == "webui":
-                    # WebUI: start with remote endpoint as API base
-                    os.environ["OPENAI_API_BASE_URL"] = f"{_remote_ep}/v1"
-                    os.environ["OPENAI_API_KEY"] = "no-key-required"
-                    _launch_tool(picked, "localmodel")
-                elif _remote_ep:
-                    # Other tools: set OpenAI env vars pointing to remote
-                    os.environ["OPENAI_BASE_URL"] = f"{_remote_ep}/v1"
-                    os.environ["OPENAI_API_KEY"] = "no-key-required"
-                    _launch_tool(picked, "localmodel")
+                if _remote_ep:
+                    # Launch tool connected directly to the remote endpoint
+                    _launch_tool_with_endpoint(picked, f"{_remote_ep}/v1", "localmodel")
                 else:
                     _launch_tool(picked, None)
             continue
@@ -1921,6 +1914,78 @@ def _arrow_tool_picker():
     if tool_id:
         print(f"\n  Launching {name}...\n")
     return tool_id
+
+
+def _launch_tool_with_endpoint(tool, api_base, model_name="localmodel"):
+    """Launch a tool connected to a specific API endpoint (local or remote). No model picker."""
+    import subprocess, webbrowser
+
+    console.print(f"  Connecting to: [cyan]{api_base}[/]")
+
+    if tool in ("webui", "open-webui", "openwebui", "chat"):
+        webui_port = 8080
+        webui_dir = os.path.expanduser("~/.localfit/open-webui")
+        os.makedirs(webui_dir, exist_ok=True)
+        env = os.environ.copy()
+        env["OPENAI_API_BASE_URL"] = api_base
+        env["OPENAI_API_KEY"] = "no-key-required"
+        env["ENABLE_OPENAI_API"] = "True"
+        env["ENABLE_OLLAMA_API"] = "False"
+        env["DATA_DIR"] = webui_dir
+        env["DEFAULT_MODELS"] = model_name
+        db_path = os.path.join(webui_dir, "webui.db")
+        if not os.path.exists(db_path):
+            env["WEBUI_AUTH"] = "False"
+
+        try:
+            subprocess.Popen(
+                ["uv", "run", "--python", "3.11", "--with", "open-webui", "--", "open-webui", "serve", "--port", str(webui_port)],
+                env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            console.print(f"  [green]✓ Open WebUI starting on http://localhost:{webui_port}[/]")
+            import time; time.sleep(3)
+            webbrowser.open(f"http://localhost:{webui_port}")
+        except FileNotFoundError:
+            try:
+                subprocess.Popen(
+                    ["open-webui", "serve", "--port", str(webui_port)],
+                    env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                console.print(f"  [green]✓ Open WebUI starting on http://localhost:{webui_port}[/]")
+                import time; time.sleep(3)
+                webbrowser.open(f"http://localhost:{webui_port}")
+            except FileNotFoundError:
+                console.print(f"  [red]Open WebUI not installed.[/]")
+                console.print(f"  [dim]Install: pip install open-webui[/]")
+                console.print(f"  [dim]Or: uv tool install open-webui[/]")
+
+    elif tool in ("claude",):
+        from localfit.proxy import PROXY_PORT, ensure_proxy_process
+        from localfit.safe_config import get_claude_launch_env
+        proxy_ready = ensure_proxy_process(llama_url=f"{api_base}/chat/completions", port=PROXY_PORT)
+        if proxy_ready:
+            subprocess.Popen(["claude", "--bare", "--model", model_name],
+                env={**os.environ, **get_claude_launch_env(api_base=f"http://127.0.0.1:{PROXY_PORT}")})
+
+    elif tool in ("opencode",):
+        from localfit.safe_config import configure_opencode
+        configure_opencode(api_base=api_base)
+        subprocess.Popen(["opencode"], env=os.environ.copy())
+
+    elif tool in ("codex",):
+        env = os.environ.copy()
+        env["OPENAI_BASE_URL"] = api_base
+        env["OPENAI_API_KEY"] = "no-key-required"
+        subprocess.Popen(["codex", "--model", model_name, "-c", "model_provider=openai", "-c", "features.use_responses_api=false"], env=env)
+
+    elif tool in ("aider",):
+        env = os.environ.copy()
+        env["OPENAI_API_BASE"] = api_base
+        env["OPENAI_API_KEY"] = "no-key-required"
+        subprocess.Popen(["aider", "--model", f"openai/{model_name}"], env=env)
+
+    else:
+        console.print(f"  [yellow]Tool '{tool}' not supported for direct endpoint launch[/]")
 
 
 def _print_local_ready_hints(port=8089, api_model=None):
