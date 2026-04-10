@@ -1780,20 +1780,91 @@ def _get_active_remote_sessions():
 
 
 def _print_local_ready_hints(port=8089, api_model=None):
-    """Show the immediate next-step commands after a local server launch."""
+    """Interactive tool picker after model is ready — arrow keys to pick, enter to launch."""
+    from rich.text import Text
+    from rich.panel import Panel
+
     api_model = api_model or _detect_local_api_model(port)
-    console.print(f"\n  [bold]Use with:[/]")
-    console.print(f"  [cyan]API:[/] http://127.0.0.1:{port}/v1")
-    console.print(
-        f"  [cyan]curl http://127.0.0.1:{port}/v1/chat/completions -H \"Content-Type: application/json\" -d '{{\"model\":\"{api_model}\",\"messages\":[{{\"role\":\"user\",\"content\":\"hello\"}}]}}'[/]"
-    )
-    console.print(
-        f"  [cyan]OPENAI_BASE_URL=http://127.0.0.1:{port}/v1 OPENAI_API_KEY=local python[/]"
-    )
-    console.print(f"  [cyan]localfit --launch claude[/]")
-    console.print(f"  [cyan]localfit --launch opencode[/]")
-    console.print(f"  [cyan]localfit --launch webui[/]")
-    console.print(f"  [cyan]localfit --config openclaw[/]")
+    api_url = f"http://127.0.0.1:{port}/v1"
+
+    console.print(f"\n  [green]✓ Model ready[/]  API: [cyan]{api_url}[/]\n")
+
+    tools = [
+        ("Open WebUI", "webui", "ChatGPT-style browser UI"),
+        ("Claude Code", "claude", "AI coding assistant"),
+        ("OpenCode", "opencode", "Terminal coding tool"),
+        ("Codex", "codex", "OpenAI Codex CLI"),
+        ("aider", "aider", "AI pair programming"),
+        ("OpenClaw", "openclaw", "Configure only"),
+        ("Skip", None, "Just keep the server running"),
+    ]
+
+    try:
+        from rich.live import Live
+        import tty, termios, sys as _sys
+
+        selected = 0
+
+        def _read():
+            fd = _sys.stdin.fileno()
+            old = termios.tcgetattr(fd)
+            try:
+                tty.setraw(fd)
+                ch = _sys.stdin.read(1)
+                if ch == "\x1b":
+                    _sys.stdin.read(1)
+                    c3 = _sys.stdin.read(1)
+                    return "up" if c3 == "A" else "down" if c3 == "B" else "esc"
+                if ch in ("\r", "\n"): return "enter"
+                if ch == "\x03": return "esc"
+                if ch == "q": return "esc"
+                return ch
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+        with Live(console=console, refresh_per_second=15, transient=True) as live:
+            while True:
+                text = Text()
+                text.append("  Launch a tool?\n\n", style="bold")
+                for i, (name, _, desc) in enumerate(tools):
+                    if i == selected:
+                        text.append(f"  › {name:<15}", style="bold cyan on grey23")
+                        text.append(f" {desc}\n", style="dim on grey23")
+                    else:
+                        text.append(f"    {name:<15}", style="")
+                        text.append(f" {desc}\n", style="dim")
+                live.update(Panel(text, border_style="green", width=min(console.width - 4, 55)))
+
+                key = _read()
+                if key == "up": selected = max(0, selected - 1)
+                elif key == "down": selected = min(len(tools) - 1, selected + 1)
+                elif key == "enter":
+                    _, tool_id, _ = tools[selected]
+                    if tool_id:
+                        console.print(f"  Launching {tools[selected][0]}...")
+                        _launch_tool(tool_id, api_model)
+                    return
+                elif key == "esc": return
+                elif key.isdigit():
+                    n = int(key) - 1
+                    if 0 <= n < len(tools):
+                        _, tool_id, _ = tools[n]
+                        if tool_id:
+                            _launch_tool(tool_id, api_model)
+                        return
+    except Exception:
+        # Fallback: simple prompt
+        console.print(f"  [bold]Launch a tool?[/]")
+        for i, (name, _, desc) in enumerate(tools, 1):
+            console.print(f"  [bold cyan]{i}[/]  {name} [dim]— {desc}[/]")
+        try:
+            pick = input("\n  > ").strip()
+            if pick.isdigit():
+                idx = int(pick) - 1
+                if 0 <= idx < len(tools) and tools[idx][1]:
+                    _launch_tool(tools[idx][1], api_model)
+        except (EOFError, KeyboardInterrupt):
+            pass
 
 
 def _serve_model(model_query, background=False):
