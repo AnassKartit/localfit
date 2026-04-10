@@ -966,6 +966,27 @@ def _boot_screen():
 
     os.system("clear" if os.name != "nt" else "cls")
 
+    # Show locally running models as ACTIVE
+    if srv["running"]:
+        mi = _detect_model_info(srv, None)
+        local_model = mi.get("name") or "unknown"
+        local_detail = f"Running on :8089 · {mi.get('size_gb', '?')}GB"
+        if mi.get("quant"):
+            local_model += f" {mi['quant']}"
+        _add_item(
+            section="ACTIVE",
+            label=local_model,
+            meta="local",
+            detail=local_detail,
+            repo="local:8089",
+            source="local",
+            accent="green",
+            badge="●",
+            selectable=True,
+            action="launch_tool_local",
+        )
+
+    # Show active remote sessions
     for session in _get_active_remote_sessions():
         _add_item(
             section="ACTIVE",
@@ -977,7 +998,7 @@ def _boot_screen():
             accent="magenta",
             badge="●",
             selectable=True,
-            action="remote_status",
+            action="launch_tool_remote",
         )
 
     installed_total = sum(m["size_gb"] for m in di.get("models", []))
@@ -1154,12 +1175,28 @@ def _boot_screen():
         if result["action"] == "remote_status":
             if result.get("repo") == "runpod":
                 from localfit.cloud import cloud_status
-
                 cloud_status()
             else:
                 from localfit.remote import remote_status
-
                 remote_status()
+            continue
+        if result["action"] == "launch_tool_local":
+            _print_local_ready_hints(port=8089)
+            continue
+        if result["action"] == "launch_tool_remote":
+            # Show the endpoint and offer tool launch
+            from localfit.remote import remote_status
+            remote_status()
+            # Also show tool picker if endpoint exists
+            try:
+                from pathlib import Path as _P
+                state = json.loads((_P.home() / ".localfit" / "active_kaggle.json").read_text())
+                ep = state.get("endpoint")
+                if ep:
+                    console.print(f"\n  [green]Endpoint:[/] [cyan]{ep}[/]\n")
+                    _print_local_ready_hints(port=None, api_model="localmodel")
+            except Exception:
+                pass
             continue
         if result["action"] == "inspect" and result.get("repo"):
             outcome = _serve_model(result["repo"])
