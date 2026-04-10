@@ -40,16 +40,17 @@ def _load_model(model_name="z-image-turbo", quantize=4):
             from mflux.models.z_image import ZImage
             _model = ZImage(quantize=quantize)
         elif "klein-4b" in model_name or "flux2-klein-4b" in model_name:
-            from mflux.models.flux2 import Flux2
-            _model = Flux2(model_name="flux2-klein-4b", quantize=quantize)
+            from mflux.models.flux2.variants import Flux2Klein
+            from mflux.models.common.config import ModelConfig
+            _model = Flux2Klein(model_config=ModelConfig.flux2_klein_4b(), quantize=quantize)
         elif "klein-9b" in model_name or "flux2-klein-9b" in model_name:
-            from mflux.models.flux2 import Flux2
-            _model = Flux2(model_name="flux2-klein-9b", quantize=quantize)
+            from mflux.models.flux2.variants import Flux2Klein
+            from mflux.models.common.config import ModelConfig
+            _model = Flux2Klein(model_config=ModelConfig.flux2_klein_9b(), quantize=quantize)
         elif "fibo" in model_name:
             from mflux.models.fibo import Fibo
             _model = Fibo(quantize=quantize)
         else:
-            # Default to z-image-turbo (fastest)
             from mflux.models.z_image import ZImageTurbo
             _model = ZImageTurbo(quantize=quantize)
             model_name = "z-image-turbo"
@@ -131,9 +132,14 @@ class ImageHandler(BaseHTTPRequestHandler):
                     self._json(500, {"error": {"message": "Generation returned None"}})
                     return
 
-                buf = io.BytesIO()
-                img.save(buf, format="PNG")
-                img_b64 = base64.b64encode(buf.getvalue()).decode()
+                # mflux returns GeneratedImage with .save(path), PIL returns Image with .save(buf, format)
+                import tempfile
+                tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+                tmp.close()
+                img.save(tmp.name)
+                with open(tmp.name, "rb") as f:
+                    img_b64 = base64.b64encode(f.read()).decode()
+                os.unlink(tmp.name)
 
                 self._json(200, {
                     "created": int(time.time()),
