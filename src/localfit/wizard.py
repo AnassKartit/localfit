@@ -227,15 +227,35 @@ def _show_tool_menu(api_model, port=8089):
     specs = get_machine_specs()
     api_url = f"http://127.0.0.1:{port}/v1"
 
+    from localfit.backends import get_metal_gpu_stats, get_swap_usage_mb, get_disk_info
+
+    metal = get_metal_gpu_stats()
+    swap_mb = get_swap_usage_mb()
+    di = get_disk_info()
+
+    gpu_total = specs.get("gpu_total_mb", 0)
+    if metal.get("total_mb"):
+        gpu_total = metal["total_mb"]
+    gpu_used = metal.get("used_mb", 0)
+    gpu_free = max(0, gpu_total - gpu_used)
+
+    swap_gb = round(swap_mb / 1024, 1)
+    swap_text = f"{swap_gb}GB" if swap_mb > 100 else "minimal"
+    if swap_mb > 2000:
+        swap_text += " · [yellow]close apps to free[/]"
+
+    disk_free = di.get("disk_free_gb", 0)
+    disk_cache = di.get("hf_cache_gb", 0)
+
     system = {
-        "subtitle": f"{specs.get('chip', 'GPU')}  {specs.get('gpu_total_mb', 0) // 1024}GB",
+        "subtitle": f"{specs.get('chip', 'GPU')}  {gpu_total // 1024}GB",
         "verdict": "SERVING",
         "color": "green",
-        "gpu": f"{api_model} loaded on :{port}",
-        "swap": "",
-        "disk": "",
+        "gpu": f"{gpu_used // 1024}GB/{gpu_total // 1024}GB used · {gpu_free // 1024}GB free",
+        "swap": swap_text,
+        "disk": f"{disk_free}GB free · cache {disk_cache}GB",
         "model": f"[green]{api_model}[/] on :{port}",
-        "machine": f"{specs.get('chip', '?')} · {specs.get('ram_gb', '?')}GB",
+        "machine": f"{specs.get('chip', '?')} · {specs.get('ram_gb', '?')}GB · {specs.get('cpu_cores', '?')} cores",
     }
 
     tools = [
