@@ -25,7 +25,9 @@ pip install localfit
 localfit                              # GPU dashboard + trending models
 localfit run gemma4:e4b               # interactive menu: pick MLX, GGUF, or Cloud
 localfit run qwen3:14b                # doesn't fit? menu shows Kaggle/RunPod options
-localfit --launch claude              # start model + launch Claude Code
+localfit launch openwebui --model gemma4:e4b                    # serve + launch tool
+localfit launch openwebui --model gemma4:e4b --remote kaggle    # serve on free Kaggle GPU + launch
+localfit launch claude --model gemma4:26b --remote runpod --budget $2
 localfit makeitfit llama-4-scout      # quantize remotely → upload to your HuggingFace
 ```
 
@@ -130,19 +132,48 @@ How it works:
 
 Uses llama.cpp native tools — no Unsloth dependency, works reliably on Kaggle and RunPod.
 
-## Launch Any Tool
+## Launch Any Tool — Local or Remote
 
-Start a model and launch your coding tool in one command:
+One command: pick a model, serve it (locally or cloud), launch your tool connected to it.
 
 ```bash
-localfit --launch claude              # Claude Code
-localfit --launch claude --model gemma4:26b
-localfit --launch codex               # OpenAI Codex CLI
-localfit --launch opencode            # OpenCode
-localfit --launch aider               # aider
-localfit --launch webui               # Open WebUI (ChatGPT-style browser)
-localfit --launch webui --tunnel      # + public URL via Cloudflare
+# Local (model fits your GPU)
+localfit launch openwebui --model gemma4:e4b
+localfit launch claude --model gemma4:26b
+localfit launch codex --model qwen3:8b
+localfit launch opencode --model gemma4:e4b
+localfit launch aider --model gemma4:26b
+
+# Remote Kaggle (free 30h/week GPU)
+localfit launch openwebui --model gemma4:e4b --remote kaggle --budget 1h
+localfit launch claude --model gemma4:31b --remote kaggle --budget 2h
+
+# Remote RunPod (paid, any GPU)
+localfit launch openwebui --model gemma4:31b --remote runpod --budget $2
+localfit launch claude --model llama3:70b --remote runpod --budget $5
 ```
+
+Budget: `30m`, `1h`, `2h` (time) or `$1`, `$2`, `$5` (money → auto-calculates time on cheapest GPU).
+
+Shows remaining quota/balance before launch:
+```
+  Kaggle GPU quota: 17h remaining (of 30h/week)
+  Duration: 60min
+  
+  ✓ Endpoint ready: https://xxx.trycloudflare.com
+  ✓ Open WebUI launched: http://localhost:8080
+```
+
+### Supported Tools
+
+| Tool | Command |
+|------|---------|
+| Open WebUI | `localfit launch openwebui` |
+| Claude Code | `localfit launch claude` |
+| OpenAI Codex | `localfit launch codex` |
+| OpenCode | `localfit launch opencode` |
+| aider | `localfit launch aider` |
+| Open WebUI + tunnel | `localfit launch webui --tunnel` |
 
 Works with both local and remote models. Env vars are **scoped to the subprocess only** — your normal tool setup is never touched.
 
