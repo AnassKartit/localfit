@@ -1327,6 +1327,7 @@ def _poll_kaggle_output(kernel_ref, timeout_seconds=600, model_query=None):
     """
     import base64 as _b64
 
+    poll_start = int(time.time())  # only accept ntfy messages after this time
     deadline = time.time() + timeout_seconds
     last_status = ""
     username = kernel_ref.split("/")[0]
@@ -1357,7 +1358,7 @@ def _poll_kaggle_output(kernel_ref, timeout_seconds=600, model_query=None):
         try:
             # 1. Check ntfy.sh first — instant notification from notebook
             try:
-                ntfy_url = f"https://ntfy.sh/{ntfy_topic}/json?poll=1&since=10m"
+                ntfy_url = f"https://ntfy.sh/{ntfy_topic}/json?poll=1&since={poll_start}"
                 ntfy_req = urllib.request.Request(ntfy_url, headers={"User-Agent": "localfit"})
                 with urllib.request.urlopen(ntfy_req, timeout=5) as nr:
                     for line in nr.read().decode().strip().split("\n"):
@@ -1705,7 +1706,8 @@ def remote_serve_kaggle(model_query, max_runtime_minutes=None):
     # 6. Poll for tunnel URL
     console.print(f"\n  [bold]Waiting for GPU + model + tunnel...[/]")
     console.print(f"  [dim]Kaggle queue ~1-5 min, build ~3-5 min, download varies[/]")
-    console.print(f"  [dim]Kernel: https://www.kaggle.com/code/{kernel_ref}[/]\n")
+    console.print(f"  [dim]Kernel: https://www.kaggle.com/code/{kernel_ref}[/]")
+    console.print(f"  [dim]Logs:   https://www.kaggle.com/code/{kernel_ref}/log[/]\n")
 
     endpoint = _poll_kaggle_output(kernel_ref, timeout_seconds=900, model_query=model_query)  # 15 min
 
