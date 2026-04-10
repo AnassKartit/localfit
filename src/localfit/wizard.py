@@ -270,7 +270,7 @@ def _show_tool_menu(api_model, port=8089):
             tool_id = result.get("repo")
             if tool_id:
                 _launch_tool_direct(tool_id, api_model, port)
-                return
+                # Stay on menu — user can launch more tools or quit
 
 
 def _launch_tool_direct(tool, model, port=8089):
