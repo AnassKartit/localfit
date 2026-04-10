@@ -267,6 +267,7 @@ def _show_tool_menu(api_model, port=8089):
     ]
 
     actions = [
+        ("Image Gen (Flux)", "start_image", "Start Flux 2 Klein 4B for image generation"),
         ("Quantize → HF", "quantize", "Create GGUF quant + upload to HuggingFace"),
         ("Convert to MLX", "convert_mlx", "Create MLX version for Apple Silicon"),
         ("Make it fit", "makeitfit", "Too big? Quantize remotely on Kaggle/RunPod"),
@@ -313,6 +314,17 @@ def _show_tool_menu(api_model, port=8089):
             if tool_id:
                 _launch_tool_direct(tool_id, api_model, port)
                 # Stay on menu — user can launch more tools
+        elif result.get("action") == "start_image":
+            import subprocess as _sp
+            console.print(f"\n  [bold]Starting Flux 2 Klein 4B image server...[/]")
+            console.print(f"  [dim]First run downloads ~2GB model[/]")
+            _sp.Popen(
+                [sys.executable, "-m", "localfit.image_server", "8189", "flux2-klein-4b"],
+                stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+            )
+            time.sleep(2)
+            console.print(f"  [green]✓ Image API: http://127.0.0.1:8189/v1/images/generations[/]")
+            console.print(f"  [dim]Configure in Open WebUI: Settings → Images → URL: http://127.0.0.1:8189[/]")
         elif result.get("action") == "quantize":
             from localfit.makeitfit import cmd_makeitfit
             os.system("clear")
