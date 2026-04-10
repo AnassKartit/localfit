@@ -1836,67 +1836,67 @@ def _get_active_remote_sessions():
 
 
 def _arrow_tool_picker():
-    """Arrow-key tool picker using raw ANSI (no Rich Live — safe inside home menu loop)."""
+    """Arrow-key tool picker using Rich Live with manual refresh (no flicker)."""
+    from rich.live import Live
+    from rich.text import Text
+    from rich.panel import Panel
     import tty, termios
 
     tools = [
-        ("Open WebUI", "webui"),
-        ("Claude Code", "claude"),
-        ("OpenCode", "opencode"),
-        ("Codex", "codex"),
-        ("aider", "aider"),
-        ("Back", None),
+        ("Open WebUI", "webui", "ChatGPT-style browser UI"),
+        ("Claude Code", "claude", "AI coding assistant"),
+        ("OpenCode", "opencode", "Terminal coding tool"),
+        ("Codex", "codex", "OpenAI Codex CLI"),
+        ("aider", "aider", "AI pair programming"),
+        ("Back", None, "Return to home"),
     ]
     selected = 0
     total = len(tools)
 
-    def _draw():
-        # Move cursor up to redraw in place
-        sys.stdout.write(f"\033[{total + 2}A\033[J")
-        print("  \033[1mLaunch a tool?\033[0m  (↑↓ navigate · enter select · q back)\n")
-        for i, (name, _) in enumerate(tools):
+    def _render():
+        text = Text()
+        text.append("  Launch a tool?\n\n", style="bold")
+        for i, (name, _, desc) in enumerate(tools):
             if i == selected:
-                print(f"  \033[7m › {name:<20}\033[0m")
+                text.append(f"  › {name:<16}", style="bold cyan reverse")
+                text.append(f" {desc}\n", style="dim reverse")
             else:
-                print(f"    {name:<20}")
-        sys.stdout.flush()
-
-    # Initial draw
-    print("  \033[1mLaunch a tool?\033[0m  (↑↓ navigate · enter select · q back)\n")
-    for i, (name, _) in enumerate(tools):
-        if i == selected:
-            print(f"  \033[7m › {name:<20}\033[0m")
-        else:
-            print(f"    {name:<20}")
-    sys.stdout.flush()
+                text.append(f"    {name:<16}", style="")
+                text.append(f" {desc}\n", style="dim")
+        return Panel(text, border_style="green", width=min(console.width - 4, 55),
+                     subtitle="[dim]↑↓ move · enter select · q back[/]")
 
     try:
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
-        tty.setraw(fd)
-        try:
-            while True:
-                ch = sys.stdin.read(1)
-                if ch == "\x1b":
-                    sys.stdin.read(1)  # [
-                    c3 = sys.stdin.read(1)
-                    if c3 == "A": selected = max(0, selected - 1)
-                    elif c3 == "B": selected = min(total - 1, selected + 1)
-                elif ch in ("\r", "\n"):
-                    break
-                elif ch in ("q", "\x03"):
-                    selected = total - 1  # Back
-                    break
-                elif ch.isdigit():
-                    n = int(ch) - 1
-                    if 0 <= n < total:
-                        selected = n
+        with Live(_render(), console=console, auto_refresh=False, transient=True) as live:
+            fd = sys.stdin.fileno()
+            old = termios.tcgetattr(fd)
+            tty.setraw(fd)
+            try:
+                while True:
+                    ch = sys.stdin.read(1)
+                    if ch == "\x1b":
+                        sys.stdin.read(1)
+                        c3 = sys.stdin.read(1)
+                        if c3 == "A": selected = max(0, selected - 1)
+                        elif c3 == "B": selected = min(total - 1, selected + 1)
+                    elif ch in ("\r", "\n"):
                         break
-                _draw()
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+                    elif ch in ("q", "\x03"):
+                        selected = total - 1
+                        break
+                    elif ch.isdigit():
+                        n = int(ch) - 1
+                        if 0 <= n < total:
+                            selected = n
+                            break
+                    live.update(_render(), refresh=True)
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old)
     except Exception:
-        # Fallback: simple input
+        # Fallback
+        console.print(f"  [bold]Launch a tool?[/]")
+        for i, (name, _, desc) in enumerate(tools, 1):
+            console.print(f"  [bold cyan]{i}[/]  {name} [dim]— {desc}[/]")
         try:
             pick = input("\n  > ").strip()
             if pick.isdigit():
@@ -1904,9 +1904,9 @@ def _arrow_tool_picker():
         except (EOFError, KeyboardInterrupt):
             return None
 
-    _, tool_id = tools[selected]
+    _, tool_id, _ = tools[selected]
     if tool_id:
-        print(f"\n  Launching {tools[selected][0]}...\n")
+        console.print(f"\n  Launching {tools[selected][0]}...")
     return tool_id
 
 
