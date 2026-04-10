@@ -1203,19 +1203,32 @@ def _boot_screen():
             continue
         if result["action"] in ("launch_tool_local", "launch_tool_remote"):
             os.system("clear")
+            _remote_ep = None
             if result["action"] == "launch_tool_local":
                 console.print(f"\n  [green]● Model running locally on :8089[/]\n")
             else:
                 try:
                     _st = json.loads((Path.home() / ".localfit" / "active_kaggle.json").read_text())
+                    _remote_ep = _st.get("endpoint", "")
                     console.print(f"\n  [magenta]● {_st.get('model','?')} (Kaggle remote)[/]")
-                    console.print(f"  [cyan]{_st.get('endpoint','')}[/]\n")
+                    console.print(f"  [cyan]{_remote_ep}[/]\n")
                 except Exception:
                     console.print(f"\n  [yellow]Remote session active[/]\n")
 
             picked = _arrow_tool_picker()
             if picked:
-                _launch_tool(picked, None)
+                if _remote_ep and picked == "webui":
+                    # WebUI: start with remote endpoint as API base
+                    os.environ["OPENAI_API_BASE_URL"] = f"{_remote_ep}/v1"
+                    os.environ["OPENAI_API_KEY"] = "no-key-required"
+                    _launch_tool(picked, "localmodel")
+                elif _remote_ep:
+                    # Other tools: set OpenAI env vars pointing to remote
+                    os.environ["OPENAI_BASE_URL"] = f"{_remote_ep}/v1"
+                    os.environ["OPENAI_API_KEY"] = "no-key-required"
+                    _launch_tool(picked, "localmodel")
+                else:
+                    _launch_tool(picked, None)
             continue
         if result["action"] == "inspect" and result.get("repo"):
             outcome = _serve_model(result["repo"])
