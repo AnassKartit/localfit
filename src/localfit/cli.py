@@ -34,6 +34,7 @@ _SUBCOMMANDS = {
     "restore": "--restore",
     "login": "--login",
     "makeitfit": "--makeitfit",
+    "launch": "--launch",
 }
 
 
@@ -579,7 +580,73 @@ tool integration:
 
     # ── Launch tool (serve model + launch tool in one command) ──
     if args.launch:
-        # Check prerequisites first
+        model = args.model or args.serve
+        provider = getattr(args, "remote", None)
+
+        # Remote launch: serve on Kaggle/RunPod, then launch tool with that endpoint
+        if provider:
+            if not model:
+                console.print(f"\n  [red]--remote requires a model.[/]")
+                console.print(f"  Usage: [cyan]localfit launch {args.launch} --model gemma4:e4b --remote kaggle[/]\n")
+                return
+
+            # Show budget info
+            if provider == "kaggle":
+                from localfit.remote import _get_quota_usage, KAGGLE_WEEKLY_QUOTA_HOURS
+                quota = _get_quota_usage()
+                remaining_h = max(0, KAGGLE_WEEKLY_QUOTA_HOURS - quota["used_hours"])
+                console.print(f"\n  [bold]Kaggle GPU quota:[/] {remaining_h:.0f}h remaining (of {KAGGLE_WEEKLY_QUOTA_HOURS}h/week)")
+                console.print(f"  [dim]Note: tracked locally — check kaggle.com/settings for exact quota[/]")
+            elif provider == "runpod":
+                try:
+                    from localfit.cloud import get_runpod_key, _runpod_api
+                    rk = get_runpod_key()
+                    if rk:
+                        r = _runpod_api('{ myself { clientBalance } }', rk)
+                        balance = r.get("data", {}).get("myself", {}).get("clientBalance", 0)
+                        console.print(f"\n  [bold]RunPod balance:[/] ${balance:.2f}")
+                except Exception:
+                    pass
+
+            # Parse budget
+            duration = getattr(args, "duration", None)
+            if not duration:
+                budget = getattr(args, "budget", "1h")
+                if budget.startswith("$"):
+                    # Money → calculate time on cheapest GPU
+                    try:
+                        from localfit.cloud import get_runpod_key, fetch_gpu_options
+                        rk = get_runpod_key()
+                        gpus = fetch_gpu_options(rk) if rk else []
+                        if gpus:
+                            cheapest = gpus[0]["price"]
+                            duration = int(float(budget.strip("$")) / cheapest * 60)
+                            console.print(f"  ${budget.strip('$')} ≈ {duration}min on {gpus[0]['name']} (${cheapest}/hr)")
+                    except Exception:
+                        duration = 60
+                else:
+                    # Time string: 30m, 1h, 2h
+                    b = budget.lower().strip()
+                    if b.endswith("m"):
+                        duration = int(b[:-1])
+                    elif b.endswith("h"):
+                        duration = int(float(b[:-1]) * 60)
+                    else:
+                        duration = 60
+
+            console.print(f"  Duration: {duration}min\n")
+
+            # Serve remotely
+            if provider == "kaggle":
+                from localfit.remote import remote_serve_kaggle
+                remote_serve_kaggle(model, max_runtime_minutes=duration)
+                # After serve returns, the tool menu was already shown
+            elif provider in ("runpod", "cloud"):
+                from localfit.cloud import cloud_serve
+                cloud_serve(model)
+            return
+
+        # Local launch: serve locally + launch tool
         from localfit.prerequisites import (
             check_llama_server,
             ensure_llama_server,
@@ -601,7 +668,6 @@ tool integration:
                 if not cc["found"]:
                     return
 
-        model = args.model or args.serve
         _launch_tool(args.launch, model, tunnel=args.tunnel)
         return
 
