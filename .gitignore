@@ -1,0 +1,12 @@
+uv.lock
+.venv/
+.webui_secret_key
+assets/localfit.iconset/
+assets/icon_256.png
+dist/
+build/
+*.egg-info/
+__pycache__/
+.pytest_cache/
+.runpod/
+macbookbenchmark.md

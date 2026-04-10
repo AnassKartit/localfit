@@ -1,0 +1,69 @@
+# RunPod Hub configuration
+# https://docs.runpod.io/hub/publishing
+name: localfit
+version: "0.7.0"
+description: "Try any AI model, one command. Pre-built with Ollama + Cloudflare tunnel. Supports any GGUF model from HuggingFace or Ollama registry."
+category: Language
+icon: https://raw.githubusercontent.com/AnassKartit/localfit/main/screenshots/demo.svg
+
+ports:
+  - port: 11434
+    protocol: http
+    name: "Ollama API (OpenAI-compatible)"
+  - port: 22
+    protocol: tcp
+    name: "SSH"
+
+env:
+  - key: LOCALFIT_MODEL_TAG
+    description: "Ollama model tag (e.g. gemma3:4b, qwen3:8b). Use this OR the REPO+FILE below."
+    required: false
+  - key: LOCALFIT_MODEL_REPO
+    description: "HuggingFace repo (e.g. unsloth/gemma-4-26B-A4B-it-GGUF)"
+    required: false
+  - key: LOCALFIT_MODEL_FILE
+    description: "GGUF filename (e.g. gemma-4-26B-A4B-it-UD-Q4_K_M.gguf)"
+    required: false
+
+readme: |
+  # localfit — Try Any AI Model, One Command
+
+  Pre-built with Ollama + Cloudflare tunnel. Serve any model instantly.
+
+  ## What's included
+  - Ollama (latest, CUDA-optimized)
+  - Cloudflare tunnel (free public URL, no account needed)
+  - localfit CLI
+  - huggingface_hub + hf_transfer
+
+  ## Quick Start
+
+  **Option A: Ollama model**
+  Set `LOCALFIT_MODEL_TAG=gemma3:4b` and deploy.
+
+  **Option B: HuggingFace GGUF (any quant)**
+  Set `LOCALFIT_MODEL_REPO=unsloth/gemma-4-26B-A4B-it-GGUF`
+  Set `LOCALFIT_MODEL_FILE=gemma-4-26B-A4B-it-UD-Q3_K_XL.gguf`
+
+  Pod starts → downloads model → creates tunnel → gives you a public URL.
+
+  ## Use from your machine
+
+  ```bash
+  # Test endpoint
+  curl https://your-tunnel.trycloudflare.com/v1/chat/completions \
+    -d '{"model":"localmodel","messages":[{"role":"user","content":"hello"}]}'
+
+  # Or use localfit CLI
+  pip install localfit
+  localfit login runpod
+  localfit run gemma4:26b --cloud
+  ```
+
+  ## Benchmarks (RTX 3090)
+  - Gemma 3 4B: 167 tok/s internal, 106 tok/s via tunnel
+  - Qwen 3 8B: 122 tok/s internal, 106 tok/s via tunnel
+
+  ## Links
+  - GitHub: https://github.com/AnassKartit/localfit
+  - PyPI: https://pypi.org/project/localfit/

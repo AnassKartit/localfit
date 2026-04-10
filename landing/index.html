@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>localfit | GPU Toolkit for Local LLMs</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0a0f;
+            --accent-orange: #e07a5f;
+            --accent-green: #81b29a;
+            --text-main: #e2e2e7;
+            --text-dim: #a0a0b0;
+            --card-bg: #14141c;
+            --border: #252530;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text-main);
+            font-family: 'Inter', sans-serif;
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 0 2rem;
+        }
+
+        /* Hero Section */
+        .hero {
+            height: 90vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: clamp(3rem, 8vw, 5rem);
+            font-weight: 800;
+            margin-bottom: 1.5rem;
+            letter-spacing: -2px;
+        }
+
+        .highlight-orange { color: var(--accent-orange); }
+        .highlight-green { color: var(--accent-green); }
+
+        .pip-box {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            padding: 1rem 2rem;
+            border-radius: 12px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            transition: transform 0.2s;
+            cursor: pointer;
+        }
+
+        .pip-box:hover {
+            transform: translateY(-5px);
+            border-color: var(--accent-orange);
+        }
+
+        .pip-box span {
+            color: var(--accent-green);
+        }
+
+        /* Features Section */
+        .section-title {
+            text-align: center;
+            font-size: 2rem;
+            margin-bottom: 3rem;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 2rem;
+            margin-bottom: 8rem;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            padding: 2rem;
+            border-radius: 16px;
+            transition: 0.3s;
+        }
+
+        .card:hover {
+            border-color: var(--accent-green);
+        }
+
+        .card h3 {
+            margin-bottom: 1rem;
+            color: var(--accent-orange);
+        }
+
+        .card p {
+            color: var(--text-dim);
+            font-size: 0.95rem;
+        }
+
+        /* Cost Table */
+        .cost-section {
+            margin-bottom: 8rem;
+        }
+
+        table {
+            width: 100%;
+            max-width: 700px;
+            margin: 0 auto;
+            border-collapse: collapse;
+            background: var(--card-bg);
+            border-radius: 16px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+
+        th, td {
+            padding: 1.5rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            background: #1c1c26;
+            color: var(--text-dim);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+            letter-spacing: 1px;
+        }
+
+        .price-local {
+            color: var(--accent-green);
+            font-weight: 800;
+            font-size: 1.2rem;
+        }
+
+        .price-cloud {
+            color: var(--text-dim);
+            text-decoration: line-through;
+        }
+
+        /* Install Section */
+        .install-section {
+            text-align: center;
+            padding: 8rem 0;
+            background: linear-gradient(to bottom, var(--bg), #0f0f1a);
+        }
+
+        .btn-primary {
+            background: var(--accent-orange);
+            color: white;
+            padding: 1rem 2.5rem;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            display: inline-block;
+            transition: opacity 0.2s;
+        }
+
+        .btn-primary:hover {
+            opacity: 0.9;
+        }
+
+        footer {
+            text-align: center;
+            padding: 4rem 0;
+            color: var(--text-dim);
+            font-size: 0.8rem;
+            border-top: 1px solid var(--border);
+        }
+
+        @media (max-width: 600px) {
+            h1 { font-size: 2.5rem; }
+            .pip-box { font-size: 0.9rem; padding: 1rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <section class="hero">
+        <div class="container">
+            <h1>Will it <span class="highlight-orange">fit?</span><br><span class="highlight-green">localfit</span></h1>
+            <div class="pip-box">
+                <span>$</span> pip install localfit
+            </div>
+        </div>
+    </section>
+
+    <section class="container">
+        <h2 class="section-title">Engineered for VRAM</h2>
+        <div class="features-grid">
+            <div class="card">
+                <h3>VRAM Calculator</h3>
+                <p>Predict exact memory requirements for any model architecture and quantization level.</p>
+            </div>
+            <div class="card">
+                <h3>Quant Optimizer</h3>
+                <p>Automatically suggest the best GGUF or EXL2 quantization to fit your specific GPU.</p>
+            </div>
+            <div class="card">
+                <h3>KV Cache Tuning</h3>
+                <p>Optimize context window sizes to prevent OOM crashes during long-form generation.</p>
+            </div>
+            <div class="card">
+                <h3>Hardware Profiler</h3>
+                <p>Deep-scan your local CUDA/ROCm environment for hidden bottlenecks.</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="cost-section container">
+        <h2 class="section-title">Stop Paying the "API Tax"</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Deployment</th>
+                    <th>Monthly Cost</th>
+                    <th>Privacy</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Cloud (Sonnet/GPT-4)</td>
+                    <td class="price-cloud">$110.00/mo</td>
+                    <td>External</td>
+                </tr>
+                <tr>
+                    <td>Local (via localfit)</td>
+                    <td class="price-local">$1.30/mo*</td>
+                    <td>Absolute</td>
+                </tr>
+            </tbody>
+        </table>
+        <p style="text-align: center; color: var(--text-dim); font-size: 0.8rem; margin-top: 1rem;">*Estimated electricity cost for 24/7 idle RTX 3090</p>
+    </section>
+
+    <section class="install-section">
+        <div class="container">
+            <h2 style="margin-bottom: 2rem;">Ready to go local?</h2>
+            <a href="#" class="btn-primary">Get Started Now</a>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            &copy; 2023 localfit toolkit. Built for the open-source community.
+        </div>
+    </footer>
+
+</body>
+</html>
