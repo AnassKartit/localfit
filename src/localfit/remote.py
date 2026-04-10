@@ -710,9 +710,15 @@ while time.time() < deadline:
 if endpoint:
     print(f"LOCALFIT_ENDPOINT={{endpoint}}")
     print(f"LOCALFIT_STATUS=serving")
-    # Write to file for polling
     with open("/kaggle/working/endpoint.txt", "w") as ef:
         ef.write(endpoint)
+    # Notify localfit poller via ntfy.sh (instant, no Kaggle API delay)
+    try:
+        import urllib.request as _ur
+        _ntfy_topic = "localfit-" + "{model_query}".replace("/", "-").replace(":", "-").replace(" ", "-")[:40]
+        _ur.urlopen(f"https://ntfy.sh/{{_ntfy_topic}}", data=endpoint.encode(), timeout=5)
+    except Exception:
+        pass
     sys.stdout.flush()
 
     print(f"")
@@ -828,9 +834,14 @@ while time.time() < deadline:
 if endpoint:
     print(f"LOCALFIT_ENDPOINT={endpoint}")
     print(f"LOCALFIT_STATUS=serving")
-    # Write to file so 'kaggle kernels output' can read it
     with open("/kaggle/working/endpoint.txt", "w") as ef:
         ef.write(endpoint)
+    try:
+        import urllib.request as _ur
+        _ntfy_topic = "localfit-" + "{model_query}".replace("/", "-").replace(":", "-").replace(" ", "-")[:40]
+        _ur.urlopen(f"https://ntfy.sh/{{_ntfy_topic}}", data=endpoint.encode(), timeout=5)
+    except Exception:
+        pass
     sys.stdout.flush()
 
     print(f"")
@@ -1153,9 +1164,14 @@ while time.time() < deadline:
 if endpoint:
     print(f"LOCALFIT_ENDPOINT={{endpoint}}")
     print(f"LOCALFIT_STATUS=serving")
-    # Write to file so 'kaggle kernels output' can read it
     with open("/kaggle/working/endpoint.txt", "w") as ef:
         ef.write(endpoint)
+    try:
+        import urllib.request as _ur
+        _ntfy_topic = "localfit-" + "{model_query}".replace("/", "-").replace(":", "-").replace(" ", "-")[:40]
+        _ur.urlopen(f"https://ntfy.sh/{{_ntfy_topic}}", data=endpoint.encode(), timeout=5)
+    except Exception:
+        pass
     sys.stdout.flush()
     print(f"")
     print(f"========================================")
@@ -1297,12 +1313,10 @@ def _push_kaggle_kernel(script, model_name, accelerator="NvidiaTeslaT4"):
     return f"{username}/{kernel_slug}"
 
 
-def _poll_kaggle_output(kernel_ref, timeout_seconds=600):
-    """Poll Kaggle kernel for the tunnel URL via REST API.
+def _poll_kaggle_output(kernel_ref, timeout_seconds=600, model_query=None):
+    """Poll Kaggle kernel for the tunnel URL.
 
-    Uses /api/v1/kernels/output which returns live log + output files
-    even while the kernel is still running (unlike `kaggle kernels output` CLI).
-
+    Uses ntfy.sh callback (instant) + Kaggle REST API fallback.
     Returns endpoint URL or None.
     """
     import base64 as _b64
@@ -1311,6 +1325,8 @@ def _poll_kaggle_output(kernel_ref, timeout_seconds=600):
     last_status = ""
     username = kernel_ref.split("/")[0]
     slug = kernel_ref.split("/")[1]
+    # ntfy topic matches what the notebook posts to
+    ntfy_topic = "localfit-" + (model_query or slug).replace("/", "-").replace(":", "-").replace(" ", "-")[:40]
 
     # Build auth header from kaggle.json
     try:
@@ -1333,7 +1349,25 @@ def _poll_kaggle_output(kernel_ref, timeout_seconds=600):
 
     while time.time() < deadline:
         try:
-            # Use Kaggle REST API — returns log + files even while running
+            # 1. Check ntfy.sh first — instant notification from notebook
+            try:
+                ntfy_url = f"https://ntfy.sh/{ntfy_topic}/json?poll=1&since=10m"
+                ntfy_req = urllib.request.Request(ntfy_url, headers={"User-Agent": "localfit"})
+                with urllib.request.urlopen(ntfy_req, timeout=5) as nr:
+                    for line in nr.read().decode().strip().split("\n"):
+                        if not line.strip():
+                            continue
+                        msg = json.loads(line)
+                        body = msg.get("message", "")
+                        if "trycloudflare.com" in body:
+                            endpoint = body.strip()
+                            if endpoint.startswith("https://"):
+                                console.print(f"  [green]✓ Endpoint received via callback[/]")
+                                return endpoint
+            except Exception:
+                pass
+
+            # 2. Fallback: Kaggle REST API for log + files
             if auth:
                 url = f"https://www.kaggle.com/api/v1/kernels/output?userName={username}&kernelSlug={slug}&pageSize=100"
                 req = urllib.request.Request(url, headers={"Authorization": f"Basic {auth}"})
@@ -1666,7 +1700,7 @@ def remote_serve_kaggle(model_query, max_runtime_minutes=None):
     console.print(f"  [dim]Kaggle queue ~1-5 min, build ~3-5 min, download varies[/]")
     console.print(f"  [dim]Kernel: https://www.kaggle.com/code/{kernel_ref}[/]\n")
 
-    endpoint = _poll_kaggle_output(kernel_ref, timeout_seconds=900)  # 15 min timeout
+    endpoint = _poll_kaggle_output(kernel_ref, timeout_seconds=900, model_query=model_query)  # 15 min
 
     if endpoint:
         # Determine model name for API
