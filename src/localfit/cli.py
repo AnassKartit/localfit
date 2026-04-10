@@ -572,10 +572,11 @@ tool integration:
         _serve_model(args.serve)
         return
 
-    # ── Remote serve without --serve (shortcut) ──
-    if args.remote and not args.serve:
+    # ── Remote serve without --serve (shortcut) — skip if --launch handles it ──
+    if args.remote and not args.serve and not args.launch:
         console.print(f"\n  [red]--remote requires a model.[/]")
-        console.print(f"  [dim]Usage: localfit --serve MODEL --remote kaggle[/]\n")
+        console.print(f"  [dim]Usage: localfit run MODEL --remote kaggle[/]")
+        console.print(f"  [dim]   or: localfit launch openwebui --model MODEL --remote kaggle[/]\n")
         return
 
     # ── Launch tool (serve model + launch tool in one command) ──
