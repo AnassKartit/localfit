@@ -148,9 +148,11 @@ def _serve_and_pick_tool(model, opt, tool, specs):
         if not binary:
             return None
 
+        # Friendly model alias (e.g. "gemma4:e4b" instead of "gemma-4-E4B-it-UD-Q8_K_XL.gguf")
+        friendly_name = model.replace("-", " ").replace("_", " ") if model else opt.get("quant", "local")
         ngl = "99"
         ctx = "32768"
-        cmd = [binary, "-m", path, "--port", "8089", "-ngl", ngl, "-c", ctx, "--jinja"]
+        cmd = [binary, "-m", path, "--port", "8089", "-ngl", ngl, "-c", ctx, "--jinja", "--alias", friendly_name]
         if opt.get("hf_data", {}).get("is_vlm") and opt.get("hf_data", {}).get("mmproj_files"):
             mmproj = opt["hf_data"]["mmproj_files"][0]["filename"]
             mmproj_path = _download_gguf(opt["repo"], mmproj)
