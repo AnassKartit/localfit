@@ -717,7 +717,9 @@ if endpoint:
         import urllib.request as _ur
         _ntfy_topic = "localfit-" + "{model_query}".replace("/", "-").replace(":", "-").replace(" ", "-")[:40]
         _ur.urlopen(f"https://ntfy.sh/{{_ntfy_topic}}", data=endpoint.encode(), timeout=5)
-    except Exception:
+        print(f"LOCALFIT_NTFY_SENT={{_ntfy_topic}}")
+    except Exception as _ntfy_err:
+        print(f"LOCALFIT_NTFY_FAILED={{_ntfy_err}}")
         pass
     sys.stdout.flush()
 
@@ -840,7 +842,9 @@ if endpoint:
         import urllib.request as _ur
         _ntfy_topic = "localfit-" + "{model_query}".replace("/", "-").replace(":", "-").replace(" ", "-")[:40]
         _ur.urlopen(f"https://ntfy.sh/{{_ntfy_topic}}", data=endpoint.encode(), timeout=5)
-    except Exception:
+        print(f"LOCALFIT_NTFY_SENT={{_ntfy_topic}}")
+    except Exception as _ntfy_err:
+        print(f"LOCALFIT_NTFY_FAILED={{_ntfy_err}}")
         pass
     sys.stdout.flush()
 
@@ -1170,7 +1174,9 @@ if endpoint:
         import urllib.request as _ur
         _ntfy_topic = "localfit-" + "{model_query}".replace("/", "-").replace(":", "-").replace(" ", "-")[:40]
         _ur.urlopen(f"https://ntfy.sh/{{_ntfy_topic}}", data=endpoint.encode(), timeout=5)
-    except Exception:
+        print(f"LOCALFIT_NTFY_SENT={{_ntfy_topic}}")
+    except Exception as _ntfy_err:
+        print(f"LOCALFIT_NTFY_FAILED={{_ntfy_err}}")
         pass
     sys.stdout.flush()
     print(f"")
