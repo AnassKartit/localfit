@@ -1852,78 +1852,29 @@ def _get_active_remote_sessions():
 
 
 def _arrow_tool_picker():
-    """Arrow-key tool picker. Saves cursor pos, redraws in place."""
-    import tty, termios
-
+    """Simple numbered tool picker — works in all terminals."""
     tools = [
-        ("Open WebUI", "webui"),
-        ("Claude Code", "claude"),
-        ("OpenCode", "opencode"),
-        ("Codex", "codex"),
-        ("aider", "aider"),
-        ("Back", None),
+        ("1", "Open WebUI", "webui"),
+        ("2", "Claude Code", "claude"),
+        ("3", "OpenCode", "opencode"),
+        ("4", "Codex", "codex"),
+        ("5", "aider", "aider"),
+        ("q", "Back", None),
     ]
-    selected = 0
-    total = len(tools)
-
-    def _draw():
-        sys.stdout.write("\033[s")  # save cursor
-        sys.stdout.write("\033[J")  # clear below
-        for i, (name, _) in enumerate(tools):
-            if i == selected:
-                sys.stdout.write(f"\r  \033[7m › {name}\033[0m\n")
-            else:
-                sys.stdout.write(f"\r    {name}\n")
-        sys.stdout.write("\033[u")  # restore cursor
-        sys.stdout.flush()
-
-    console.print(f"  [bold]Launch a tool?[/]  [dim]↑↓ enter q[/]\n")
+    console.print(f"  [bold]Launch a tool?[/]\n")
+    for num, name, _ in tools:
+        console.print(f"  [bold cyan]{num}[/]  {name}")
+    console.print()
     try:
-        fd = sys.stdin.fileno()
-        old = termios.tcgetattr(fd)
-        _draw()
-        tty.setraw(fd)
-        try:
-            while True:
-                ch = sys.stdin.read(1)
-                if ch == "\x1b":
-                    sys.stdin.read(1)
-                    c3 = sys.stdin.read(1)
-                    if c3 == "A": selected = max(0, selected - 1)
-                    elif c3 == "B": selected = min(total - 1, selected + 1)
-                elif ch in ("\r", "\n"):
-                    break
-                elif ch in ("q", "\x03"):
-                    selected = total - 1
-                    break
-                elif ch.isdigit():
-                    n = int(ch) - 1
-                    if 0 <= n < total:
-                        selected = n
-                        break
-                termios.tcsetattr(fd, termios.TCSADRAIN, old)
-                _draw()
-                tty.setraw(fd)
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old)
-        # Clear the menu
-        sys.stdout.write("\033[s\033[J\033[u")
-        for _ in range(total):
-            sys.stdout.write("\n")
-        sys.stdout.flush()
-    except Exception:
-        for i, (name, _) in enumerate(tools, 1):
-            print(f"  {i}  {name}")
-        try:
-            pick = input("  > ").strip()
-            if pick.isdigit(): selected = int(pick) - 1
-        except (EOFError, KeyboardInterrupt):
-            return None
-
-    name, tool_id = tools[selected]
-    if tool_id:
-        console.print(f"\n  Launching {name}...")
-    return tool_id
+        pick = input("  > ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return None
+    for num, name, tool_id in tools:
+        if pick == num:
+            if tool_id:
+                console.print(f"\n  Launching {name}...")
+            return tool_id
+    return None
 
 
 def _launch_tool_with_endpoint(tool, api_base, model_name="localmodel"):
