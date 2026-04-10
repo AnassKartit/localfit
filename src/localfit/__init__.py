@@ -1,3 +1,3 @@
 """localfit — GPU toolkit for local LLMs. Will it fit? Benchmark. Monitor. Serve."""
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
