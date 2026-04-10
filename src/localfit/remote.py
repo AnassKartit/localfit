@@ -1422,18 +1422,22 @@ def _poll_kaggle_output(kernel_ref, timeout_seconds=600, model_query=None):
                         except Exception:
                             pass
 
-            # Fallback: check kernel status via CLI
-            status_result = subprocess.run(
-                ["kaggle", "kernels", "status", kernel_ref],
-                capture_output=True, text=True, timeout=15,
-            )
-            kernel_status = status_result.stdout.strip().lower()
-            if "error" in kernel_status or "cancel" in kernel_status:
-                console.print(f"  [red]Kernel failed: {kernel_status}[/]")
-                return None
-            if "complete" in kernel_status and not last_status:
-                console.print(f"  [yellow]Kernel completed without producing endpoint[/]")
-                return None
+            # Check kernel status via REST API (works with both kaggle CLI v1 and v2)
+            try:
+                status_url = f"https://www.kaggle.com/api/v1/kernels/status?userName={username}&kernelSlug={slug}"
+                status_req = urllib.request.Request(status_url, headers={"Authorization": f"Basic {auth}"} if auth else {})
+                with urllib.request.urlopen(status_req, timeout=10) as sr:
+                    status_data = json.loads(sr.read())
+                    ks = status_data.get("status", "").lower()
+                    if "error" in ks or "cancel" in ks:
+                        fm = status_data.get("failureMessage", "")
+                        console.print(f"  [red]Kernel failed: {ks} {fm[:100]}[/]")
+                        return None
+                    if "complete" in ks and not last_status:
+                        console.print(f"  [yellow]Kernel completed without producing endpoint[/]")
+                        return None
+            except Exception:
+                pass
 
         except subprocess.TimeoutExpired:
             pass
@@ -2156,27 +2160,25 @@ def remote_stop():
         console.print(f"\n  [bold]Stopping Kaggle kernel: {kernel_ref}[/]")
 
         try:
-            result = subprocess.run(
-                ["kaggle", "kernels", "status", kernel_ref],
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
-            status = result.stdout.strip()
+            import base64 as _b64_stop
+            _kj = json.loads((Path.home() / ".kaggle" / "kaggle.json").read_text())
+            _auth = _b64_stop.b64encode(f'{_kj["username"]}:{_kj["key"]}'.encode()).decode()
+            _parts = kernel_ref.split("/")
+            _url = f"https://www.kaggle.com/api/v1/kernels/status?userName={_parts[0]}&kernelSlug={_parts[1]}"
+            _req = urllib.request.Request(_url, headers={"Authorization": f"Basic {_auth}"})
+            with urllib.request.urlopen(_req, timeout=10) as _r:
+                _sd = json.loads(_r.read())
+                status = _sd.get("status", "unknown")
             console.print(f"  Status: {status}")
 
             if "running" in status.lower():
-                console.print(
-                    f"  [yellow]Kaggle CLI doesn't support kernel cancellation.[/]"
-                )
-                console.print(
-                    f"  [dim]Stop manually: https://www.kaggle.com/code/{kernel_ref}[/]"
-                )
-                console.print(f"  [dim]Or wait — it auto-stops after 12h.[/]")
+                console.print(f"  [yellow]Kaggle doesn't support kernel cancellation via API.[/]")
+                console.print(f"  [dim]Stop manually: https://www.kaggle.com/code/{kernel_ref}[/]")
+                console.print(f"  [dim]Or wait — it auto-stops after duration.[/]")
             else:
                 console.print(f"  [green]✓[/] Kernel already stopped.")
         except Exception as e:
-            console.print(f"  [red]Error: {e}[/]")
+            console.print(f"  [red]Error checking status: {e}[/]")
 
     elapsed = (time.time() - state.get("started_at", time.time())) / 3600
     console.print(f"  Runtime: ~{elapsed:.1f}h")
