@@ -679,7 +679,7 @@ sys.stdout.flush()
 with open("/tmp/Modelfile", "w") as f:
     f.write("{modelfile_content}\\n")
 
-r = run_cmd("/usr/local/bin/ollama create localmodel -f /tmp/Modelfile", timeout=900)
+r = run_cmd("/usr/local/bin/ollama create {model_query} -f /tmp/Modelfile", timeout=900)
 if r.returncode != 0:
     print(f"LOCALFIT_ERROR=ollama_create_failed:{{r.stderr[:300]}}")
     sys.stdout.flush()
@@ -729,7 +729,7 @@ if endpoint:
     print(f"========================================")
     print("")
     print("Test:")
-    body = '{{"model": "localmodel", "messages": [{{"role": "user", "content": "hello"}}]}}'
+    body = '{{"model": "{model_query}", "messages": [{{"role": "user", "content": "hello"}}]}}'
     print(f"  curl {{endpoint}}/v1/chat/completions -H 'Content-Type: application/json' -d '" + body + "'")
     sys.stdout.flush()
 else:
@@ -1722,9 +1722,7 @@ def remote_serve_kaggle(model_query, max_runtime_minutes=None):
 
     if endpoint:
         # Determine model name for API
-        api_model = (
-            model_query if ("/" in model_query or ":" in model_query) else "localmodel"
-        )
+        api_model = model_query
         is_vlm = bool(mmproj_filename) or (data and data.get("is_vlm"))
 
         # 7. Auto-test the endpoint
@@ -2035,10 +2033,7 @@ def _print_ready(
     stop_command="localfit --remote-stop",
 ):
     """Print the ready message with usage instructions and test code."""
-    if "/" in model_query or ":" in model_query:
-        api_model = model_query
-    else:
-        api_model = "localmodel"
+    api_model = model_query
 
     gpu_vram = gpu.get("vram_gb", gpu.get("vram", "?"))
 

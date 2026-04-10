@@ -1218,8 +1218,8 @@ def _boot_screen():
             picked = _arrow_tool_picker()
             if picked:
                 if _remote_ep:
-                    # Launch tool connected directly to the remote endpoint
-                    _launch_tool_with_endpoint(picked, f"{_remote_ep}/v1", "localmodel")
+                    _model = _st.get("model", "gemma4:e4b") if "_st" in dir() else "gemma4:e4b"
+                    _launch_tool_with_endpoint(picked, f"{_remote_ep}/v1", _model)
                 else:
                     _launch_tool(picked, None)
             continue
