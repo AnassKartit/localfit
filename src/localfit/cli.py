@@ -1842,37 +1842,36 @@ def _get_active_remote_sessions():
 
 
 def _arrow_tool_picker():
-    """Arrow-key tool picker using direct ANSI cursor control (no Rich Live)."""
+    """Arrow-key tool picker. Saves cursor pos, redraws in place."""
     import tty, termios
 
     tools = [
-        ("Open WebUI", "webui", "ChatGPT-style browser UI"),
-        ("Claude Code", "claude", "AI coding assistant"),
-        ("OpenCode", "opencode", "Terminal coding tool"),
-        ("Codex", "codex", "OpenAI Codex CLI"),
-        ("aider", "aider", "AI pair programming"),
-        ("Back", None, "Return to home"),
+        ("Open WebUI", "webui"),
+        ("Claude Code", "claude"),
+        ("OpenCode", "opencode"),
+        ("Codex", "codex"),
+        ("aider", "aider"),
+        ("Back", None),
     ]
     selected = 0
     total = len(tools)
-    LINES = total + 2  # header + blank + items
 
-    def _draw(first=False):
-        if not first:
-            sys.stdout.write(f"\033[{LINES}A")  # move cursor up
-        sys.stdout.write("\033[J")  # clear from cursor down
-        sys.stdout.write("  \033[1mLaunch a tool?\033[0m  \033[2m↑↓ move · enter select · q back\033[0m\n\n")
-        for i, (name, _, desc) in enumerate(tools):
+    def _draw():
+        sys.stdout.write("\033[s")  # save cursor
+        sys.stdout.write("\033[J")  # clear below
+        for i, (name, _) in enumerate(tools):
             if i == selected:
-                sys.stdout.write(f"  \033[46;30m › {name:<16} {desc:<30}\033[0m\n")
+                sys.stdout.write(f"\r  \033[7m › {name}\033[0m\n")
             else:
-                sys.stdout.write(f"    {name:<16} \033[2m{desc}\033[0m\n")
+                sys.stdout.write(f"\r    {name}\n")
+        sys.stdout.write("\033[u")  # restore cursor
         sys.stdout.flush()
 
+    console.print(f"  [bold]Launch a tool?[/]  [dim]↑↓ enter q[/]\n")
     try:
         fd = sys.stdin.fileno()
         old = termios.tcgetattr(fd)
-        _draw(first=True)
+        _draw()
         tty.setraw(fd)
         try:
             while True:
@@ -1892,27 +1891,28 @@ def _arrow_tool_picker():
                     if 0 <= n < total:
                         selected = n
                         break
-                # Restore terminal briefly to redraw, then go raw again
                 termios.tcsetattr(fd, termios.TCSADRAIN, old)
                 _draw()
                 tty.setraw(fd)
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        # Clear the menu
+        sys.stdout.write("\033[s\033[J\033[u")
+        for _ in range(total):
+            sys.stdout.write("\n")
+        sys.stdout.flush()
     except Exception:
-        # Fallback: simple numbered input
-        print("  Launch a tool?\n")
-        for i, (name, _, desc) in enumerate(tools, 1):
-            print(f"  {i}  {name} — {desc}")
+        for i, (name, _) in enumerate(tools, 1):
+            print(f"  {i}  {name}")
         try:
-            pick = input("\n  > ").strip()
-            if pick.isdigit():
-                selected = int(pick) - 1
+            pick = input("  > ").strip()
+            if pick.isdigit(): selected = int(pick) - 1
         except (EOFError, KeyboardInterrupt):
             return None
 
-    name, tool_id, _ = tools[selected]
+    name, tool_id = tools[selected]
     if tool_id:
-        print(f"\n  Launching {name}...\n")
+        console.print(f"\n  Launching {name}...")
     return tool_id
 
 
