@@ -1202,21 +1202,65 @@ def _boot_screen():
                 remote_status()
             continue
         if result["action"] == "launch_tool_local":
-            _print_local_ready_hints(port=8089)
+            os.system("clear")
+            console.print(f"\n  [green]● Model running on :8089[/]\n")
+            console.print(f"  [bold]Launch a tool?[/]\n")
+            _tools = [
+                ("1", "Open WebUI", "webui"),
+                ("2", "Claude Code", "claude"),
+                ("3", "OpenCode", "opencode"),
+                ("4", "Codex", "codex"),
+                ("5", "aider", "aider"),
+                ("q", "Back", None),
+            ]
+            for num, name, _ in _tools:
+                console.print(f"  [bold cyan]{num}[/]  {name}")
+            console.print()
+            try:
+                _pick = input("  > ").strip()
+                for num, name, tid in _tools:
+                    if _pick == num and tid:
+                        _launch_tool(tid, None)
+                        break
+            except (EOFError, KeyboardInterrupt):
+                pass
             continue
         if result["action"] == "launch_tool_remote":
-            # Show the endpoint and offer tool launch
-            from localfit.remote import remote_status
-            remote_status()
-            # Also show tool picker if endpoint exists
+            os.system("clear")
             try:
-                from pathlib import Path as _P
-                state = json.loads((_P.home() / ".localfit" / "active_kaggle.json").read_text())
-                ep = state.get("endpoint")
-                if ep:
-                    console.print(f"\n  [green]Endpoint:[/] [cyan]{ep}[/]\n")
-                    _print_local_ready_hints(port=None, api_model="localmodel")
+                state = json.loads((Path.home() / ".localfit" / "active_kaggle.json").read_text())
+                ep = state.get("endpoint", "")
+                model = state.get("model", "?")
+                console.print(f"\n  [magenta]● {model} (Kaggle remote)[/]")
+                console.print(f"  [cyan]{ep}[/]\n")
             except Exception:
+                ep = ""
+                console.print(f"\n  [yellow]Remote session active but no endpoint yet[/]\n")
+
+            console.print(f"  [bold]Launch a tool?[/]\n")
+            _tools = [
+                ("1", "Open WebUI", "webui"),
+                ("2", "Claude Code", "claude"),
+                ("3", "OpenCode", "opencode"),
+                ("4", "Codex", "codex"),
+                ("5", "aider", "aider"),
+                ("6", "Show status", None),
+                ("q", "Back", None),
+            ]
+            for num, name, _ in _tools:
+                console.print(f"  [bold cyan]{num}[/]  {name}")
+            console.print()
+            try:
+                _pick = input("  > ").strip()
+                if _pick == "6":
+                    from localfit.remote import remote_status
+                    remote_status()
+                else:
+                    for num, name, tid in _tools:
+                        if _pick == num and tid:
+                            _launch_tool(tid, None)
+                            break
+            except (EOFError, KeyboardInterrupt):
                 pass
             continue
         if result["action"] == "inspect" and result.get("repo"):
