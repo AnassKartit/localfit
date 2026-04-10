@@ -100,7 +100,7 @@ def _render_layout(system, items, selected_pos, width):
     left = _detail_panel(system, current, detail_width)
 
     sections = []
-    for section_title in ("ACTIVE", "TOOLS", "INSTALLED", "RECOMMENDED", "COMPATIBLE", "TRENDING", "CLOUD"):
+    for section_title in ("ACTIVE", "TOOLS", "ACTIONS", "INSTALLED", "RECOMMENDED", "COMPATIBLE", "TRENDING", "CLOUD"):
         rows = [(i, item) for i, item in enumerate(items) if item["section"] == section_title]
         accent = rows[0][1]["accent"] if rows else "bright_white"
         block = _section_block(section_title, accent, rows, selected_pos)

@@ -260,10 +260,16 @@ def _show_tool_menu(api_model, port=8089):
 
     tools = [
         ("Open WebUI", "webui", "ChatGPT-style browser UI"),
-        ("Claude Code", "claude", "AI coding assistant"),
+        ("Claude Code", "claude", "AI coding in terminal"),
         ("OpenCode", "opencode", "Terminal coding tool"),
         ("Codex", "codex", "OpenAI Codex CLI"),
         ("aider", "aider", "AI pair programming"),
+    ]
+
+    actions = [
+        ("Stop model", "stop_model", "Kill server + free GPU"),
+        ("Switch model", "switch_model", "Pick a different model"),
+        ("Browse models", "browse", "Trending + compatible models"),
     ]
 
     items = [
@@ -275,24 +281,46 @@ def _show_tool_menu(api_model, port=8089):
         },
     ]
 
-    for i, (name, tool_id, desc) in enumerate(tools, 2):
+    idx = 2
+    for name, tool_id, desc in tools:
         items.append({
-            "index": i, "section": "TOOLS", "label": name,
+            "index": idx, "section": "TOOLS", "label": name,
             "meta": "", "detail": desc,
             "repo": tool_id, "source": "", "accent": "cyan",
             "badge": "→", "action": "launch_tool", "selectable": True,
         })
+        idx += 1
+
+    for name, action_id, desc in actions:
+        items.append({
+            "index": idx, "section": "ACTIONS", "label": name,
+            "meta": "", "detail": desc,
+            "repo": action_id, "source": "", "accent": "yellow",
+            "badge": "⚙", "action": action_id, "selectable": True,
+        })
+        idx += 1
 
     os.system("clear")
     while True:
         result = show_home_menu(system, items)
         if not result or result.get("action") in ("quit", "back", None):
-            return
+            return "quit"
         if result.get("action") == "launch_tool":
             tool_id = result.get("repo")
             if tool_id:
                 _launch_tool_direct(tool_id, api_model, port)
-                # Stay on menu — user can launch more tools or quit
+                # Stay on menu — user can launch more tools
+        elif result.get("action") == "stop_model":
+            import subprocess, signal
+            subprocess.run(["pkill", "-f", "llama-server"], timeout=5)
+            console.print(f"  [yellow]Model stopped. GPU freed.[/]")
+            return "stopped"
+        elif result.get("action") == "switch_model":
+            import subprocess
+            subprocess.run(["pkill", "-f", "llama-server"], timeout=5)
+            return "switch"
+        elif result.get("action") == "browse":
+            return "browse"
 
 
 def _launch_tool_direct(tool, model, port=8089):
