@@ -2013,15 +2013,63 @@ def _launch_tool_with_endpoint(tool, api_base, model_name="localmodel"):
 
 
 def _print_local_ready_hints(port=8089, api_model=None):
-    """Static hints after model starts. No interactive menu — use `localfit launch` for that."""
+    """Show the home menu with model ACTIVE + TOOLS section. Same UI as `localfit`."""
+    from localfit.home_menu import show_home_menu
+
     api_model = api_model or _detect_local_api_model(port)
-    console.print(f"\n  [green]✓ Model ready[/]  API: [cyan]http://127.0.0.1:{port}/v1[/]\n")
-    console.print(f"  [bold]Launch a tool:[/]")
-    console.print(f"  [cyan]localfit launch openwebui[/]")
-    console.print(f"  [cyan]localfit launch claude[/]")
-    console.print(f"  [cyan]localfit launch opencode[/]")
-    console.print(f"  [cyan]localfit launch aider[/]")
-    console.print()
+    api_url = f"http://127.0.0.1:{port}/v1"
+
+    from localfit.backends import get_machine_specs, get_metal_gpu_stats
+    specs = get_machine_specs()
+    metal = get_metal_gpu_stats()
+    gpu_total = specs["gpu_total_mb"] if specs.get("cpu_only") else (metal.get("total_mb") or specs["gpu_total_mb"])
+
+    system = {
+        "subtitle": f"{specs.get('chip', 'GPU')}  {gpu_total // 1024}GB",
+        "verdict": "SERVING",
+        "color": "green",
+        "gpu": f"{gpu_total // 1024}GB · {api_model or 'model'} loaded",
+        "swap": "",
+        "disk": "",
+        "model": f"{api_model or '?'} on :{port}",
+        "machine": f"{specs.get('chip', '?')} · {specs.get('ram_gb', '?')}GB",
+    }
+
+    items = [
+        {
+            "index": 1, "section": "ACTIVE", "label": api_model or "model",
+            "meta": "local", "detail": f"Running on :{port}",
+            "repo": f"local:{port}", "source": "local", "accent": "green",
+            "badge": "●", "action": "noop", "selectable": False,
+        },
+    ]
+
+    tools = [
+        ("Open WebUI", "webui", "ChatGPT-style browser UI"),
+        ("Claude Code", "claude", "AI coding assistant"),
+        ("OpenCode", "opencode", "Terminal coding tool"),
+        ("Codex", "codex", "OpenAI Codex CLI"),
+        ("aider", "aider", "AI pair programming"),
+    ]
+
+    for i, (name, tool_id, desc) in enumerate(tools, 2):
+        items.append({
+            "index": i, "section": "TOOLS", "label": name,
+            "meta": "", "detail": desc,
+            "repo": tool_id, "source": "", "accent": "cyan",
+            "badge": "→", "action": "launch_tool", "selectable": True,
+        })
+
+    os.system("clear")
+    while True:
+        result = show_home_menu(system, items)
+        if not result or result.get("action") in ("quit", "back", None):
+            return
+        if result.get("action") == "launch_tool":
+            tool_id = result.get("repo")
+            if tool_id:
+                _launch_tool(tool_id, api_model)
+                return
 
 
 def _serve_model(model_query, background=False):
