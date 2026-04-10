@@ -267,9 +267,12 @@ def _show_tool_menu(api_model, port=8089):
     ]
 
     actions = [
+        ("Quantize → HF", "quantize", "Create GGUF quant + upload to HuggingFace"),
+        ("Convert to MLX", "convert_mlx", "Create MLX version for Apple Silicon"),
+        ("Make it fit", "makeitfit", "Too big? Quantize remotely on Kaggle/RunPod"),
         ("Stop model", "stop_model", "Kill server + free GPU"),
         ("Switch model", "switch_model", "Pick a different model"),
-        ("Browse models", "browse", "Trending + compatible models"),
+        ("Browse models", "browse", "Trending + compatible for your GPU"),
     ]
 
     items = [
@@ -310,14 +313,28 @@ def _show_tool_menu(api_model, port=8089):
             if tool_id:
                 _launch_tool_direct(tool_id, api_model, port)
                 # Stay on menu — user can launch more tools
+        elif result.get("action") == "quantize":
+            from localfit.makeitfit import cmd_makeitfit
+            os.system("clear")
+            cmd_makeitfit(api_model)
+        elif result.get("action") == "convert_mlx":
+            from localfit.backends import convert_to_mlx
+            os.system("clear")
+            convert_to_mlx(api_model, q_bits=4)
+        elif result.get("action") == "makeitfit":
+            from localfit.makeitfit import cmd_makeitfit
+            os.system("clear")
+            cmd_makeitfit(api_model)
         elif result.get("action") == "stop_model":
-            import subprocess, signal
+            import subprocess
             subprocess.run(["pkill", "-f", "llama-server"], timeout=5)
+            subprocess.run(["pkill", "-f", "mlx_lm"], timeout=5)
             console.print(f"  [yellow]Model stopped. GPU freed.[/]")
             return "stopped"
         elif result.get("action") == "switch_model":
             import subprocess
             subprocess.run(["pkill", "-f", "llama-server"], timeout=5)
+            subprocess.run(["pkill", "-f", "mlx_lm"], timeout=5)
             return "switch"
         elif result.get("action") == "browse":
             return "browse"
