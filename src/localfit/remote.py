@@ -1275,12 +1275,10 @@ def _push_kaggle_kernel(script, model_name, accelerator="NvidiaTeslaT4"):
 
     # Kaggle requires title to resolve to the slug in the id field.
     # Slug rules: lowercase, alphanumeric + hyphens, no consecutive hyphens.
-    # Add short timestamp suffix so each push creates a fresh kernel (avoids stale log issues)
-    import hashlib
-    _ts = hashlib.md5(str(time.time()).encode()).hexdigest()[:6]
-    raw = f"localfit-{model_name[:25]}-{_ts}"
+    # Reuse same slug per model — Kaggle creates new version on each push.
+    raw = f"localfit-{model_name[:35]}"
     kernel_slug = _re_slug.sub(r"[^a-z0-9]+", "-", raw.lower()).strip("-")[:50]
-    kernel_slug = _re_slug.sub(r"-+", "-", kernel_slug)  # collapse double hyphens
+    kernel_slug = _re_slug.sub(r"-+", "-", kernel_slug)
     title = kernel_slug
 
     tmpdir = tempfile.mkdtemp(prefix="localfit-kaggle-")
