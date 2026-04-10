@@ -1394,7 +1394,8 @@ def _poll_kaggle_output(kernel_ref, timeout_seconds=600, model_query=None):
                             label = f"Downloading {status[12:]}..."
                         else:
                             label = status_labels.get(status, status.replace("_", " ").title())
-                        console.print(f"  [dim]{label}[/]")
+                        from rich.markup import escape as _esc
+                        console.print(f"  [dim]{_esc(label)}[/]")
 
                 # Check for errors in log
                 err_match = re.search(r"LOCALFIT_ERROR=(.+)", log_text)
