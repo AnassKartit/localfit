@@ -1218,6 +1218,16 @@ def _boot_screen():
             picked = _arrow_tool_picker()
             if picked:
                 if _remote_ep:
+                    # Check if endpoint is alive before launching
+                    import urllib.request as _ur
+                    try:
+                        _ur.urlopen(f"{_remote_ep}/v1/models", timeout=5)
+                        console.print(f"  [green]● Endpoint alive[/]")
+                    except Exception:
+                        console.print(f"  [red]● Endpoint dead — Kaggle session may have expired[/]")
+                        console.print(f"  [dim]Restart: localfit run gemma4:e4b --remote kaggle[/]")
+                        input("\n  Press Enter to go back...")
+                        continue
                     _model = _st.get("model", "gemma4:e4b") if "_st" in dir() else "gemma4:e4b"
                     _launch_tool_with_endpoint(picked, f"{_remote_ep}/v1", _model)
                 else:

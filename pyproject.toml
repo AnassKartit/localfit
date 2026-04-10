@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "localfit"
-version = "1.3.8"
+version = "1.3.9"
 description = "Will it fit? GPU toolkit for AI models — MLX + GGUF + Cloud in one menu."
 readme = "README.md"
 license = "Apache-2.0"
