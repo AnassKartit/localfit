@@ -2081,7 +2081,6 @@ def _serve_model(model_query, background=False):
     """
     if not background:
         _show_logo_intro()
-    """
     from localfit.backends import (
         MODELS,
         find_model_file,
