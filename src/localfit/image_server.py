@@ -132,14 +132,11 @@ class ImageHandler(BaseHTTPRequestHandler):
                     self._json(500, {"error": {"message": "Generation returned None"}})
                     return
 
-                # mflux returns GeneratedImage with .save(path), PIL returns Image with .save(buf, format)
-                import tempfile
-                tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
-                tmp.close()
-                img.save(tmp.name)
-                with open(tmp.name, "rb") as f:
-                    img_b64 = base64.b64encode(f.read()).decode()
-                os.unlink(tmp.name)
+                # Get PIL image from mflux GeneratedImage or use directly
+                pil_img = img.image if hasattr(img, "image") else img
+                buf = io.BytesIO()
+                pil_img.save(buf, format="PNG")
+                img_b64 = base64.b64encode(buf.getvalue()).decode()
 
                 self._json(200, {
                     "created": int(time.time()),
