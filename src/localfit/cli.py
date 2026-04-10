@@ -1851,29 +1851,44 @@ def _get_active_remote_sessions():
     return sessions
 
 
-def _arrow_tool_picker():
-    """Simple numbered tool picker — works in all terminals."""
+def _arrow_tool_picker(title="Launch a tool", endpoint_info=None):
+    """Tool picker using the SAME menu system as localfit home."""
+    from localfit.home_menu import show_home_menu
+
     tools = [
-        ("1", "Open WebUI", "webui"),
-        ("2", "Claude Code", "claude"),
-        ("3", "OpenCode", "opencode"),
-        ("4", "Codex", "codex"),
-        ("5", "aider", "aider"),
-        ("q", "Back", None),
+        ("Open WebUI", "webui", "ChatGPT-style browser UI"),
+        ("Claude Code", "claude", "AI coding in terminal"),
+        ("OpenCode", "opencode", "Terminal coding tool"),
+        ("Codex", "codex", "OpenAI Codex CLI"),
+        ("aider", "aider", "AI pair programming"),
     ]
-    console.print(f"  [bold]Launch a tool?[/]\n")
-    for num, name, _ in tools:
-        console.print(f"  [bold cyan]{num}[/]  {name}")
-    console.print()
-    try:
-        pick = input("  > ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        return None
-    for num, name, tool_id in tools:
-        if pick == num:
-            if tool_id:
-                console.print(f"\n  Launching {name}...")
-            return tool_id
+
+    system = {
+        "subtitle": endpoint_info or "Select a tool",
+        "status_rows": [],
+    }
+
+    items = []
+    idx = 0
+    for name, tool_id, desc in tools:
+        items.append({
+            "index": idx + 1,
+            "section": "TOOLS",
+            "label": name,
+            "meta": "",
+            "detail": desc,
+            "repo": tool_id,
+            "source": "",
+            "accent": "cyan",
+            "badge": "→",
+            "action": "launch",
+            "selectable": True,
+        })
+        idx += 1
+
+    result = show_home_menu(system, items)
+    if result and result.get("action") == "launch":
+        return result.get("repo")
     return None
 
 
