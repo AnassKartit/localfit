@@ -272,10 +272,22 @@ def show_run_menu(model, hw, local_opts, remote_opts, recommended):
 
 def collect_options(model_query, specs):
     """Collect MLX + GGUF + Remote options for a model."""
-    from localfit.backends import IS_MAC, check_mlx_available, get_machine_specs
+    from localfit.backends import IS_MAC, check_mlx_available, get_machine_specs, MODELS
 
     if specs is None:
         specs = get_machine_specs()
+
+    # Resolve Ollama-style tags (gemma4:e4b) to HF search terms
+    # Check known models first, then strip colons for HF search
+    hf_query = model_query
+    resolved = model_query.replace(":", "-").replace("/", "-")
+    for mid, m in MODELS.items():
+        if m.get("ollama_tag") == model_query or mid == resolved:
+            hf_query = m.get("hf_repo", "").split("/")[-1] if m.get("hf_repo") else resolved
+            break
+    # Also try without colon for HF search (gemma:e2b → gemma-e2b → gemma e2b)
+    if ":" in model_query and hf_query == model_query:
+        hf_query = model_query.replace(":", " ")
 
     gpu_total_mb = specs.get("gpu_total_mb", 0)
     usable_mb = gpu_total_mb - 2048
@@ -286,7 +298,7 @@ def collect_options(model_query, specs):
 
     # ── MLX options ──
     if IS_MAC and check_mlx_available():
-        for repo, info in _find_all_mlx_variants(model_query):
+        for repo, info in _find_all_mlx_variants(hf_query):
             size_gb = info.get("size_gb", 0)
             fits = size_gb * 1024 < usable_mb if size_gb else True
             tight = not fits and size_gb and size_gb * 1024 < gpu_total_mb
@@ -306,7 +318,7 @@ def collect_options(model_query, specs):
 
     # ── GGUF options ──
     from localfit.backends import fetch_hf_model
-    data = fetch_hf_model(model_query, silent=True)
+    data = fetch_hf_model(hf_query, silent=True)
     if data and data.get("gguf_files"):
         metadata["hf_data"] = data
         mmproj = data["mmproj_files"][0]["size_gb"] if data.get("is_vlm") and data.get("mmproj_files") else 0

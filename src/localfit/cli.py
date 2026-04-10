@@ -2776,7 +2776,8 @@ def _launch_tool(tool_name, model_name=None, tunnel=False):
             pass
 
         # Check remote Kaggle session
-        kaggle_state = Path.home() / ".localfit" / "active_kaggle.json"
+        from pathlib import Path as _Path
+        kaggle_state = _Path.home() / ".localfit" / "active_kaggle.json"
         if kaggle_state.exists():
             try:
                 state = json.loads(kaggle_state.read_text())
