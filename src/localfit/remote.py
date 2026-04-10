@@ -1292,8 +1292,12 @@ def _push_kaggle_kernel(script, model_name, accelerator="NvidiaTeslaT4"):
     with open(script_path, "w") as f:
         f.write(script)
 
-    # Pass --accelerator to CLI — it maps directly to machine_shape in the API request
-    # and overrides whatever is in kernel-metadata.json. Always pass it explicitly.
+    # Delete existing kernel first — ensures clean run, fresh logs, no stale state
+    subprocess.run(
+        ["kaggle", "kernels", "delete", f"{username}/{kernel_slug}"],
+        capture_output=True, text=True, timeout=15,
+    )  # ignore errors — kernel may not exist yet
+
     push_cmd = ["kaggle", "kernels", "push", "-p", tmpdir, "--accelerator", accelerator]
 
     result = subprocess.run(
