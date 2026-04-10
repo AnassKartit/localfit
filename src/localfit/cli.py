@@ -2077,6 +2077,10 @@ def _serve_model(model_query, background=False):
 
     Args:
         background: If True, start server and return immediately (used by --launch).
+
+    """
+    if not background:
+        _show_logo_intro()
     """
     from localfit.backends import (
         MODELS,
