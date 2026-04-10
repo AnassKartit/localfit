@@ -1936,6 +1936,25 @@ def _launch_tool_with_endpoint(tool, api_base, model_name="localmodel"):
         db_path = os.path.join(webui_dir, "webui.db")
         if not os.path.exists(db_path):
             env["WEBUI_AUTH"] = "False"
+            console.print(f"  [dim]First run — no login required[/]")
+        else:
+            # Check existing users
+            try:
+                import sqlite3
+                _db = sqlite3.connect(db_path)
+                _users = _db.execute("SELECT email FROM user LIMIT 1").fetchall()
+                _db.close()
+                if _users:
+                    console.print(f"  [dim]Login: {_users[0][0]}[/]")
+                    console.print(f"  [dim]Forgot password? Run: localfit --launch webui --reset-auth[/]")
+                    try:
+                        _ans = input("  Skip auth for this session? (y/n): ").strip().lower()
+                        if _ans == "y":
+                            env["WEBUI_AUTH"] = "False"
+                    except (EOFError, KeyboardInterrupt):
+                        pass
+            except Exception:
+                pass
 
         try:
             subprocess.Popen(
