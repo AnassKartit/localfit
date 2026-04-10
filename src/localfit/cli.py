@@ -1,6 +1,7 @@
 """localfit CLI — GPU toolkit for local LLMs."""
 
 import argparse, json, os, sys, time
+from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
@@ -871,6 +872,21 @@ def _boot_screen():
             model_name += f" {mi['quant']}"
         if mi.get("size_gb"):
             model_name += f" {mi['size_gb']}GB"
+        model_name += " [green](local)[/]"
+    elif not srv["running"]:
+        # Check for active remote session
+        try:
+            _kaggle_state = Path.home() / ".localfit" / "active_kaggle.json"
+            if _kaggle_state.exists():
+                _ks = json.loads(_kaggle_state.read_text())
+                _ep = _ks.get("endpoint", "")
+                _km = _ks.get("model", "?")
+                if _ep:
+                    model_name = f"{_km} [magenta](Kaggle remote)[/]"
+                else:
+                    model_name = f"{_km} [yellow](Kaggle starting...)[/]"
+        except Exception:
+            pass
     kv_mb = diag.get("kv_cache_est_mb", 0)
     used_mb = model_mb + kv_mb
     free_mb = max(0, gpu_total - used_mb)
@@ -890,7 +906,12 @@ def _boot_screen():
         machine_line = f"{specs['chip']} · {specs['ram_gb']}GB · {specs['cpu_cores']} CPU cores"
         subtitle = f"{specs['chip']}  {specs['ram_gb']}GB RAM"
     else:
-        gpu_line = f"{used_mb // 1024}/{gpu_total // 1024}GB used · {free_mb // 1024}GB free" if used_mb else f"{gpu_total // 1024}GB total · no model loaded"
+        if used_mb:
+            gpu_line = f"{used_mb // 1024}/{gpu_total // 1024}GB used · {free_mb // 1024}GB free"
+        elif "remote" in model_name.lower() or "kaggle" in model_name.lower():
+            gpu_line = f"{gpu_total // 1024}GB total · model on remote GPU"
+        else:
+            gpu_line = f"{gpu_total // 1024}GB total · no model loaded"
         machine_line = f"{specs['chip']} · {specs['ram_gb']}GB · {specs.get('gpu_cores', '?')} GPU cores"
         subtitle = f"{specs['chip']}  {gpu_total // 1024}GB unified"
 
