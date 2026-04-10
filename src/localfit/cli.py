@@ -570,7 +570,10 @@ tool integration:
                 console.print(f"  [red]Unknown remote provider: {provider}[/]")
                 console.print(f"  [dim]Supported: kaggle (free T4), runpod (paid)[/]")
                 return
-        _serve_model(args.serve)
+        # Use wizard — shows run menu (MLX/GGUF/Remote), serves, then tool picker
+        from localfit.wizard import run_wizard
+        _show_logo_intro()
+        run_wizard(model=args.serve, tool=args.launch)
         return
 
     # ── Remote serve without --serve (shortcut) — skip if --launch handles it ──
