@@ -2092,14 +2092,16 @@ def _print_ready(
         console.print(
             f"  [cyan]IMG=$(curl -s https://example.com/image.jpg | base64 -w0)"
         )
-        console.print(f"  curl {endpoint}/v1/chat/completions \\")
-        console.print(f'    -H "Content-Type: application/json" \\')
-        console.print(
+        from rich.markup import escape as _esc_curl
+        vlm_curl = (
+            f'  curl {endpoint}/v1/chat/completions \\\n'
+            f'    -H "Content-Type: application/json" \\\n'
             f'    -d \'{{"model": "{api_model}", "messages": '
             f'[{{"role": "user", "content": ['
             f'{{"type": "image_url", "image_url": {{"url": "data:image/jpeg;base64,\'$IMG\'"}}}}, '
-            f'{{"type": "text", "text": "What is in this image?"}}]}}]}}\'[/]'
+            f'{{"type": "text", "text": "What is in this image?"}}]}}]}}\''
         )
+        console.print(f"  [cyan]{_esc_curl(vlm_curl)}[/]")
 
     console.print()
     console.print(f"  [bold]── Test: Python ──[/]")
