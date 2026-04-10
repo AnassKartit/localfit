@@ -18,6 +18,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.request
 
 from pathlib import Path
 from rich.console import Console
@@ -1297,90 +1298,98 @@ def _push_kaggle_kernel(script, model_name, accelerator="NvidiaTeslaT4"):
 
 
 def _poll_kaggle_output(kernel_ref, timeout_seconds=600):
-    """Poll Kaggle kernel output for the tunnel URL.
+    """Poll Kaggle kernel for the tunnel URL via REST API.
 
-    Reads endpoint.txt from kernel output files (written by the notebook).
-    Falls back to parsing log output for LOCALFIT_ENDPOINT.
+    Uses /api/v1/kernels/output which returns live log + output files
+    even while the kernel is still running (unlike `kaggle kernels output` CLI).
 
     Returns endpoint URL or None.
     """
-    import tempfile
+    import base64 as _b64
 
     deadline = time.time() + timeout_seconds
     last_status = ""
+    username = kernel_ref.split("/")[0]
+    slug = kernel_ref.split("/")[1]
+
+    # Build auth header from kaggle.json
+    try:
+        kaggle_json = json.loads((Path.home() / ".kaggle" / "kaggle.json").read_text())
+        auth = _b64.b64encode(f'{kaggle_json["username"]}:{kaggle_json["key"]}'.encode()).decode()
+    except Exception:
+        auth = None
+
+    status_labels = {
+        "installing": "Installing dependencies...",
+        "building_llama_server": "Building llama-server (CUDA)...",
+        "llama_server_built": "llama-server built!",
+        "starting_ollama": "Starting Ollama...",
+        "starting_server": "Starting llama-server...",
+        "importing_model": "Importing model into Ollama...",
+        "model_ready": "Model loaded!",
+        "starting_tunnel": "Starting Cloudflare tunnel...",
+        "serving": "Serving!",
+    }
 
     while time.time() < deadline:
         try:
-            # Try downloading output files (endpoint.txt)
-            tmpdir = tempfile.mkdtemp(prefix="localfit-poll-")
-            result = subprocess.run(
-                ["kaggle", "kernels", "output", kernel_ref, "-p", tmpdir],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
+            # Use Kaggle REST API — returns log + files even while running
+            if auth:
+                url = f"https://www.kaggle.com/api/v1/kernels/output?userName={username}&kernelSlug={slug}&pageSize=100"
+                req = urllib.request.Request(url, headers={"Authorization": f"Basic {auth}"})
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    data = json.loads(resp.read())
 
-            # Check if endpoint.txt was downloaded
-            endpoint_file = os.path.join(tmpdir, "endpoint.txt")
-            if os.path.exists(endpoint_file):
-                endpoint = open(endpoint_file).read().strip()
-                if endpoint.startswith("https://"):
-                    return endpoint
+                log_text = data.get("log", "")
 
-            # Cleanup temp dir
-            import shutil
+                # Parse endpoint from log
+                endpoint_match = re.search(
+                    r"LOCALFIT_ENDPOINT=(https://[\w-]+\.trycloudflare\.com)", log_text
+                )
+                if endpoint_match:
+                    return endpoint_match.group(1)
 
-            shutil.rmtree(tmpdir, ignore_errors=True)
+                # Show status updates from log
+                for status_match in re.finditer(r"LOCALFIT_STATUS=(\S+)", log_text):
+                    status = status_match.group(1)
+                    if status != last_status:
+                        last_status = status
+                        if status.startswith("pulling_"):
+                            label = f"Pulling {status[8:]}..."
+                        elif status.startswith("downloading_"):
+                            label = f"Downloading {status[12:]}..."
+                        else:
+                            label = status_labels.get(status, status.replace("_", " ").title())
+                        console.print(f"  [dim]{label}[/]")
 
-            # Also check stdout/stderr for status updates
-            output = result.stdout + result.stderr
+                # Check for errors in log
+                err_match = re.search(r"LOCALFIT_ERROR=(.+)", log_text)
+                if err_match:
+                    console.print(f"  [red]Error: {err_match.group(1)[:200]}[/]")
+                    return None
 
-            # Check for endpoint
-            match = re.search(
-                r"LOCALFIT_ENDPOINT=(https://[\w-]+\.trycloudflare\.com)", output
-            )
-            if match:
-                return match.group(1)
+                # Check files list for endpoint.txt
+                for f in data.get("files", []):
+                    if f.get("fileName") == "endpoint.txt" and f.get("url"):
+                        try:
+                            with urllib.request.urlopen(f["url"], timeout=10) as fr:
+                                endpoint = fr.read().decode().strip()
+                                if endpoint.startswith("https://"):
+                                    return endpoint
+                        except Exception:
+                            pass
 
-            # Show status updates
-            for status_match in re.finditer(r"LOCALFIT_STATUS=(\S+)", output):
-                status = status_match.group(1)
-                if status != last_status:
-                    last_status = status
-                    status_labels = {
-                        "installing": "Installing dependencies...",
-                        "building_llama_server": "Building llama-server (CUDA)...",
-                        "llama_server_built": "llama-server built!",
-                        "starting_ollama": "Starting Ollama...",
-                        "starting_server": "Starting llama-server...",
-                        "model_ready": "Model loaded!",
-                        "starting_tunnel": "Starting Cloudflare tunnel...",
-                        "serving": "Serving!",
-                    }
-                    if status.startswith("pulling_"):
-                        label = f"Pulling {status[8:]}..."
-                    elif status.startswith("downloading_"):
-                        label = f"Downloading {status[12:]}..."
-                    else:
-                        label = status_labels.get(status, status)
-                    console.print(f"  [dim]{label}[/]")
-
-            # Check for errors
-            err_match = re.search(r"LOCALFIT_ERROR=(.+)", output)
-            if err_match:
-                console.print(f"  [red]Error: {err_match.group(1)[:200]}[/]")
-                return None
-
-            # Check kernel status
+            # Fallback: check kernel status via CLI
             status_result = subprocess.run(
                 ["kaggle", "kernels", "status", kernel_ref],
-                capture_output=True,
-                text=True,
-                timeout=15,
+                capture_output=True, text=True, timeout=15,
             )
             kernel_status = status_result.stdout.strip().lower()
             if "error" in kernel_status or "cancel" in kernel_status:
                 console.print(f"  [red]Kernel failed: {kernel_status}[/]")
+                return None
+            if "complete" in kernel_status and not last_status:
+                console.print(f"  [yellow]Kernel completed without producing endpoint[/]")
                 return None
 
         except subprocess.TimeoutExpired:
