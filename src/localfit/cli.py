@@ -1201,67 +1201,21 @@ def _boot_screen():
                 from localfit.remote import remote_status
                 remote_status()
             continue
-        if result["action"] == "launch_tool_local":
+        if result["action"] in ("launch_tool_local", "launch_tool_remote"):
             os.system("clear")
-            console.print(f"\n  [green]● Model running on :8089[/]\n")
-            console.print(f"  [bold]Launch a tool?[/]\n")
-            _tools = [
-                ("1", "Open WebUI", "webui"),
-                ("2", "Claude Code", "claude"),
-                ("3", "OpenCode", "opencode"),
-                ("4", "Codex", "codex"),
-                ("5", "aider", "aider"),
-                ("q", "Back", None),
-            ]
-            for num, name, _ in _tools:
-                console.print(f"  [bold cyan]{num}[/]  {name}")
-            console.print()
-            try:
-                _pick = input("  > ").strip()
-                for num, name, tid in _tools:
-                    if _pick == num and tid:
-                        _launch_tool(tid, None)
-                        break
-            except (EOFError, KeyboardInterrupt):
-                pass
-            continue
-        if result["action"] == "launch_tool_remote":
-            os.system("clear")
-            try:
-                state = json.loads((Path.home() / ".localfit" / "active_kaggle.json").read_text())
-                ep = state.get("endpoint", "")
-                model = state.get("model", "?")
-                console.print(f"\n  [magenta]● {model} (Kaggle remote)[/]")
-                console.print(f"  [cyan]{ep}[/]\n")
-            except Exception:
-                ep = ""
-                console.print(f"\n  [yellow]Remote session active but no endpoint yet[/]\n")
+            if result["action"] == "launch_tool_local":
+                console.print(f"\n  [green]● Model running locally on :8089[/]\n")
+            else:
+                try:
+                    _st = json.loads((Path.home() / ".localfit" / "active_kaggle.json").read_text())
+                    console.print(f"\n  [magenta]● {_st.get('model','?')} (Kaggle remote)[/]")
+                    console.print(f"  [cyan]{_st.get('endpoint','')}[/]\n")
+                except Exception:
+                    console.print(f"\n  [yellow]Remote session active[/]\n")
 
-            console.print(f"  [bold]Launch a tool?[/]\n")
-            _tools = [
-                ("1", "Open WebUI", "webui"),
-                ("2", "Claude Code", "claude"),
-                ("3", "OpenCode", "opencode"),
-                ("4", "Codex", "codex"),
-                ("5", "aider", "aider"),
-                ("6", "Show status", None),
-                ("q", "Back", None),
-            ]
-            for num, name, _ in _tools:
-                console.print(f"  [bold cyan]{num}[/]  {name}")
-            console.print()
-            try:
-                _pick = input("  > ").strip()
-                if _pick == "6":
-                    from localfit.remote import remote_status
-                    remote_status()
-                else:
-                    for num, name, tid in _tools:
-                        if _pick == num and tid:
-                            _launch_tool(tid, None)
-                            break
-            except (EOFError, KeyboardInterrupt):
-                pass
+            picked = _arrow_tool_picker()
+            if picked:
+                _launch_tool(picked, None)
             continue
         if result["action"] == "inspect" and result.get("repo"):
             outcome = _serve_model(result["repo"])
@@ -1879,6 +1833,81 @@ def _get_active_remote_sessions():
         pass
 
     return sessions
+
+
+def _arrow_tool_picker():
+    """Arrow-key tool picker using raw ANSI (no Rich Live — safe inside home menu loop)."""
+    import tty, termios
+
+    tools = [
+        ("Open WebUI", "webui"),
+        ("Claude Code", "claude"),
+        ("OpenCode", "opencode"),
+        ("Codex", "codex"),
+        ("aider", "aider"),
+        ("Back", None),
+    ]
+    selected = 0
+    total = len(tools)
+
+    def _draw():
+        # Move cursor up to redraw in place
+        sys.stdout.write(f"\033[{total + 2}A\033[J")
+        print("  \033[1mLaunch a tool?\033[0m  (↑↓ navigate · enter select · q back)\n")
+        for i, (name, _) in enumerate(tools):
+            if i == selected:
+                print(f"  \033[7m › {name:<20}\033[0m")
+            else:
+                print(f"    {name:<20}")
+        sys.stdout.flush()
+
+    # Initial draw
+    print("  \033[1mLaunch a tool?\033[0m  (↑↓ navigate · enter select · q back)\n")
+    for i, (name, _) in enumerate(tools):
+        if i == selected:
+            print(f"  \033[7m › {name:<20}\033[0m")
+        else:
+            print(f"    {name:<20}")
+    sys.stdout.flush()
+
+    try:
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        tty.setraw(fd)
+        try:
+            while True:
+                ch = sys.stdin.read(1)
+                if ch == "\x1b":
+                    sys.stdin.read(1)  # [
+                    c3 = sys.stdin.read(1)
+                    if c3 == "A": selected = max(0, selected - 1)
+                    elif c3 == "B": selected = min(total - 1, selected + 1)
+                elif ch in ("\r", "\n"):
+                    break
+                elif ch in ("q", "\x03"):
+                    selected = total - 1  # Back
+                    break
+                elif ch.isdigit():
+                    n = int(ch) - 1
+                    if 0 <= n < total:
+                        selected = n
+                        break
+                _draw()
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    except Exception:
+        # Fallback: simple input
+        try:
+            pick = input("\n  > ").strip()
+            if pick.isdigit():
+                selected = int(pick) - 1
+        except (EOFError, KeyboardInterrupt):
+            return None
+
+    _, tool_id = tools[selected]
+    if tool_id:
+        print(f"\n  Launching {tools[selected][0]}...\n")
+    return tool_id
 
 
 def _print_local_ready_hints(port=8089, api_model=None):
