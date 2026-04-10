@@ -2680,22 +2680,76 @@ def _launch_tool(tool_name, model_name=None, tunnel=False):
         os.execvpe("hermes", ["hermes"], env)
 
     elif tool in ("webui", "open-webui", "openwebui", "chat"):
-        # Launch Open WebUI pre-configured with local model
+        # Smart endpoint picker: detect local + remote models
         webui_port = 8080
+        api_base = None
+        import urllib.request as _wr
 
-        # Check if already running on this port
+        endpoints = []
+
+        # Check local llama-server
         try:
-            import urllib.request
+            _wr.urlopen(f"http://localhost:8089/health", timeout=1)
+            endpoints.append(("Local llama-server (:8089)", "http://localhost:8089/v1"))
+        except Exception:
+            pass
 
-            with urllib.request.urlopen(f"http://localhost:{webui_port}", timeout=2):
-                console.print(
-                    f"  [green]✓[/] Open WebUI already running on http://localhost:{webui_port}"
-                )
-                console.print(f"  [dim]Opening browser...[/]")
-                import webbrowser
+        # Check local MLX server
+        try:
+            _wr.urlopen(f"http://localhost:8080/v1/models", timeout=1)
+            endpoints.append(("Local MLX server (:8080)", "http://localhost:8080/v1"))
+        except Exception:
+            pass
 
-                webbrowser.open(f"http://localhost:{webui_port}")
-                return
+        # Check local Ollama
+        try:
+            _wr.urlopen(f"http://localhost:11434/api/tags", timeout=1)
+            endpoints.append(("Local Ollama (:11434)", "http://localhost:11434/v1"))
+        except Exception:
+            pass
+
+        # Check remote Kaggle session
+        kaggle_state = Path.home() / ".localfit" / "active_kaggle.json"
+        if kaggle_state.exists():
+            try:
+                state = json.loads(kaggle_state.read_text())
+                ep = state.get("endpoint")
+                if ep:
+                    endpoints.append((f"Kaggle remote ({state.get('model', '?')})", f"{ep}/v1"))
+            except Exception:
+                pass
+
+        if not endpoints:
+            console.print(f"\n  [yellow]No running models found.[/]")
+            console.print(f"  Start one first: [cyan]localfit run MODEL[/]")
+            console.print(f"  Or remote:       [cyan]localfit run MODEL --remote kaggle[/]\n")
+            return
+
+        if len(endpoints) == 1:
+            api_base = endpoints[0][1]
+            console.print(f"  [green]✓[/] Using: {endpoints[0][0]}")
+        else:
+            console.print(f"\n  [bold]Connect Open WebUI to:[/]\n")
+            for i, (label, url) in enumerate(endpoints, 1):
+                console.print(f"  [bold cyan]{i}[/]  {label}")
+                console.print(f"     [dim]{url}[/]")
+            console.print()
+            try:
+                pick = input(f"  Pick [1-{len(endpoints)}]: ").strip()
+                idx = int(pick) - 1
+                api_base = endpoints[idx][1]
+            except (ValueError, IndexError, EOFError, KeyboardInterrupt):
+                api_base = endpoints[0][1]
+            console.print(f"  [green]✓[/] Using: {api_base}")
+
+        # Check if Open WebUI already running
+        try:
+            _wr.urlopen(f"http://localhost:{webui_port}", timeout=2)
+            console.print(f"  [green]✓[/] Open WebUI already running on http://localhost:{webui_port}")
+            console.print(f"  [dim]Opening browser...[/]")
+            import webbrowser
+            webbrowser.open(f"http://localhost:{webui_port}")
+            return
         except Exception:
             pass
 
@@ -2705,7 +2759,7 @@ def _launch_tool(tool_name, model_name=None, tunnel=False):
         os.makedirs(webui_dir, exist_ok=True)
 
         webui_env = env.copy()
-        webui_env["OPENAI_API_BASE_URL"] = f"http://localhost:{port}/v1"
+        webui_env["OPENAI_API_BASE_URL"] = api_base
         webui_env["OPENAI_API_KEY"] = "no-key-required"
         webui_env["ENABLE_OPENAI_API"] = "True"
         webui_env["ENABLE_OLLAMA_API"] = "False"
