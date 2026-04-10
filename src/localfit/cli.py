@@ -1838,9 +1838,15 @@ def _serve_model(model_query, background=False):
     local_opts, remote_opts, recommended, menu_meta = collect_options(model_query, specs)
 
     if local_opts or remote_opts:
-        gpu_name = specs.get("gpu_name", "Unknown")
+        # Cross-platform: Mac uses "chip" (Apple M4 Pro), Linux uses nvidia-smi GPU name
+        chip = specs.get("chip", "")
         gpu_gb = round(specs.get("gpu_total_mb", 0) / 1024, 1)
-        hw_label = f"{gpu_name} {gpu_gb}GB" if gpu_name != "Unknown" else f"Apple Silicon {gpu_gb}GB"
+        if chip and chip != "Unknown":
+            hw_label = f"{chip}  {gpu_gb}GB"
+        elif specs.get("gpu_name"):
+            hw_label = f"{specs['gpu_name']}  {gpu_gb}GB VRAM"
+        else:
+            hw_label = f"{gpu_gb}GB GPU" if gpu_gb > 0 else "CPU only"
 
         choice = show_run_menu(model_query, hw_label, local_opts, remote_opts, recommended)
         if choice in (None, "back"):
