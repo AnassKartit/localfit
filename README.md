@@ -11,7 +11,7 @@
 
 **Will it fit?** Say what model you want — localfit figures out the rest.
 
-Fits locally? Run it via MLX or llama.cpp. Doesn't fit? Kaggle free GPU. Still too big? RunPod cloud. Need a custom quant? Quantize remotely and upload to HuggingFace. You never think about hardware.
+Text and image generation. Fits locally? Run it. Doesn't fit? Free Kaggle GPU. Still too big? RunPod cloud. One command does everything: downloads models, starts servers, configures tools, launches your UI.
 
 ```bash
 pip install localfit
@@ -19,288 +19,228 @@ pip install localfit
 
 ---
 
-## Quick Start
+## One Command — Everything Works
 
 ```bash
-localfit                              # GPU dashboard + trending models
-localfit run gemma4:e4b               # interactive menu: pick MLX, GGUF, or Cloud
-localfit run qwen3:14b                # doesn't fit? menu shows Kaggle/RunPod options
-localfit launch openwebui --model gemma4:e4b                    # serve + launch tool
-localfit launch openwebui --model gemma4:e4b --remote kaggle    # serve on free Kaggle GPU + launch
-localfit launch claude --model gemma4:26b --remote runpod --budget $2
-localfit makeitfit llama-4-scout      # quantize remotely → upload to your HuggingFace
+# Chat + image gen in Open WebUI (gemma4 LLM + Flux Klein 4B images)
+localfit launch openwebui --model gemma4:e4b --img klein-4b
+
+# Code with image gen in localcoder
+localfit launch localcoder --model gemma4:e4b --img klein-4b
+
+# Claude Code with image MCP tools
+localfit launch claude --model gemma4:e4b --img klein-4b
+
+# Model doesn't fit locally? Run on free Kaggle GPU
+localfit launch openwebui --model gemma4:26b --remote kaggle
+
+# Need more power? RunPod cloud ($0.22/hr)
+localfit launch openwebui --model gemma4:26b --img klein-9b --remote runpod --budget $2
 ```
+
+localfit auto-detects your hardware, downloads models, installs Ollama if needed, starts the image server, configures Open WebUI with image generation enabled, and opens your browser. Zero manual config.
 
 ## The Run Menu
 
-When you `localfit run MODEL`, you get an interactive menu with **arrow key navigation** — pick your backend before anything downloads:
-
-```
-╭──────────────────────── Qwen2.5-7B-Instruct ─────────────────────────╮
-│   LOCAL                                                              │
-│   › MLX   Qwen2.5-7B-Instruct-4bit             3.5GB                │
-│     MLX   Qwen2.5-7B-Instruct-8bit             7.0GB  ⭐             │
-│     GGUF  Q4_K_M                                4.4GB                │
-│     GGUF  Q8_0                                  7.5GB                │
-│                                                                      │
-│   REMOTE                                                             │
-│     Kaggle  T4 16GB                               free               │
-│     RunPod  RTX A5000 24GB                    $0.16/hr               │
-╰──────────────────────────── Apple Silicon 16GB ──────────────────────╯
+```bash
+localfit run gemma4:e4b
 ```
 
-- **MLX** — Native Apple Silicon, fastest on Mac. Auto-discovers mlx-community models.
-- **GGUF** — llama.cpp with Metal/CUDA. Works everywhere.
-- **Kaggle** — Free 30h/week GPU. One click to deploy.
-- **RunPod** — Paid cloud GPU. Auto-picks cheapest that fits.
+Interactive menu with **arrow key navigation** — pick your backend before anything downloads:
 
-## Backends
+```
+╭──────────────────────── gemma-4-E4B ────────────────────────╮
+│   LOCAL                                                     │
+│   › MLX   gemma-4-E4B-4bit                      3.5GB      │
+│     GGUF  Q4_K_M                                4.4GB      │
+│     GGUF  Q8_0                                  7.5GB      │
+│                                                             │
+│   REMOTE                                                    │
+│     Kaggle  T4 16GB                               free      │
+│     RunPod  RTX 3090 24GB                     $0.22/hr      │
+╰──────────────────────── Apple Silicon 24GB ─────────────────╯
+```
+
+## Image Generation
+
+One server, two APIs — works with Open WebUI, Claude Code, and any OpenAI-compatible client.
+
+```bash
+# Starts automatically with --img flag, or manually:
+python -m localfit.image_server 8189 klein-4b 4
+```
+
+**OpenAI API:** `POST /v1/images/generations`
+**AUTOMATIC1111 API:** `POST /sdapi/v1/txt2img` (Open WebUI native)
+
+### Supported Image Models
+
+| Model | Pipeline | Params | Local Mac | Kaggle T4 | RunPod 3090 |
+|-------|----------|--------|:---------:|:---------:|:-----------:|
+| FLUX.2 Klein 4B | Flux2KleinPipeline | 4B | **24s** | 65s | **2s** |
+| FLUX.2 Klein 9B | Flux2KleinPipeline | 9B | mflux | cpu_offload | 3090+ |
+| FLUX.1 Schnell | FluxPipeline | 12B | 79s | cpu_offload | 3090 |
+| FLUX.1 Dev | FluxPipeline | 12B | mflux | cpu_offload | 3090+ |
+| Z-Image-Turbo | ZImagePipeline | 6B | 90s | T4 | 3090 |
+| Qwen-Image | QwenImagePipeline | 20B | — | — | A6000+ |
+| Qwen-Image-Edit | QwenImageEditPlusPipeline | 20B | — | — | A100 |
+| SDXL | StableDiffusionXLPipeline | 6.6B | diffusers | T4 | 3090 |
+| SD 3.5 Large | StableDiffusion3Pipeline | 8B | diffusers | T4 | 3090 |
+
+All models auto-detected via `DiffusionPipeline.from_pretrained()`.
+
+### MCP Server for Claude Code
+
+```bash
+claude mcp add localfit-image --transport stdio -- python3 -m localfit.mcp_image
+```
+
+6 tools available:
+
+| Tool | Description |
+|------|-------------|
+| `check_resources` | GPU/VRAM info, loaded model, ETA estimates |
+| `generate_image` | Text-to-image with timing + Image object |
+| `edit_image` | Image-to-image editing |
+| `show_image` | Display image in terminal via timg |
+| `list_image_models` | Available models |
+| `image_server_status` | Server health |
+
+### Benchmarks (Verified)
+
+| Platform | GPU | Model | Size | Steps | Time |
+|----------|-----|-------|------|-------|------|
+| **Mac** | M4 Pro | Klein 4B | 1024x1024 | 4 | **24s** |
+| **Mac** | M4 Pro | Schnell | 512x512 | 4 | **79s** |
+| **Kaggle** | T4 16GB | Klein 4B | 512x512 | 4 | **65s** |
+| **RunPod** | RTX 3090 | Klein 4B | 512x512 | 4 | **2s** |
+
+## LLM Backends
+
+### Ollama (Default)
+
+```bash
+localfit run gemma4:e4b               # auto-installs Ollama, pulls model, serves
+```
 
 ### MLX (Apple Silicon)
 
-localfit auto-detects if you have `mlx-lm` installed and finds MLX models on HuggingFace:
-
 ```bash
-pip install mlx-lm                    # one-time setup
-localfit run gemma-3-4b-it            # auto-picks mlx-community/gemma-3-4b-it-8bit
-```
-
-If no mlx-community model exists, localfit can **convert any HuggingFace model to MLX locally**:
-
-```bash
-localfit run bytedance-research/UI-TARS-7B-DPO
-# → No mlx-community model found
-# → "Convert locally? mlx_lm needs ~14GB RAM (you have 24GB)"
-# → Converts to MLX 4-bit → serves immediately
+pip install mlx-lm
+localfit run gemma-3-4b-it            # auto-picks mlx-community model
 ```
 
 ### GGUF (llama.cpp)
 
-The default for all platforms. localfit downloads the best GGUF quant for your GPU and serves via llama-server:
+```bash
+localfit run gemma4:26b               # downloads best GGUF quant for your GPU
+```
+
+## Remote Serving
+
+### Kaggle (Free — 30h/week GPU)
 
 ```bash
-localfit run gemma4:26b               # MoE, 12GB, best quality on 24GB Mac
-localfit show gemma4:26b              # show all quants + fit analysis + cloud pricing
+localfit login kaggle
+localfit run gemma4:e4b --remote kaggle
 ```
 
-### Remote Kaggle (Free)
-
-30 hours/week of free T4 GPU. localfit auto-deploys via Cloudflare tunnel:
+### RunPod (Paid — any GPU)
 
 ```bash
-localfit run qwen3:14b --remote kaggle
-localfit --remote-status              # check active session
-localfit --remote-stop                # stop + free quota
+localfit login runpod
+localfit run gemma4:26b --cloud --budget $2
 ```
 
-### Remote RunPod (Paid)
-
-Any GPU size. Live pricing from the API. Auto-stop when budget runs out:
+### Combined Remote (LLM + Image on same GPU)
 
 ```bash
-localfit login runpod                 # save API key
-localfit run gemma4:27b --cloud       # auto-provision + tunnel
-localfit --stop                       # kill pod + stop billing
+localfit launch openwebui --model gemma4:e4b --img klein-4b --remote runpod
 ```
 
-## Make It Fit — Remote Quantization
+Deploys both models on one RunPod GPU, tunnels via Cloudflare, launches Open WebUI connected to both endpoints. Tested: gemma4:e4b + Klein 4B on RTX 3090 — LLM 0.18s + image 2s.
 
-Can't find the right quant? Create your own and upload to HuggingFace:
-
-```bash
-localfit makeitfit Qwen2.5-7B-Instruct
-```
-
-```
-  Your GPU: Apple Silicon 16GB
-  Model: Qwen/Qwen2.5-7B-Instruct (14GB BF16)
-
-  1  Quantize on Kaggle (free) → Q4_K_M GGUF     ~7 min
-  2  Quantize on RunPod         → Q5_K_M GGUF     ~$0.10
-  3  Serve remotely (no quant)
-
-  Pick option:
-```
-
-How it works:
-1. Picks Kaggle GPU (free) or RunPod (cheapest available)
-2. Downloads model from HuggingFace
-3. Converts to F16 GGUF via llama.cpp
-4. Quantizes to your chosen method (Q4_K_M, Q5_K_M, Q8_0, etc.)
-5. Uploads to **your HuggingFace repo**
-6. Run it: `localfit run yourname/model-Q4_K_M-GGUF-localfit`
-
-Uses llama.cpp native tools — no Unsloth dependency, works reliably on Kaggle and RunPod.
-
-## Launch Any Tool — Local or Remote
-
-One command: pick a model, serve it (locally or cloud), launch your tool connected to it.
-
-```bash
-# Local (model fits your GPU)
-localfit launch openwebui --model gemma4:e4b
-localfit launch claude --model gemma4:26b
-localfit launch codex --model qwen3:8b
-localfit launch opencode --model gemma4:e4b
-localfit launch aider --model gemma4:26b
-
-# Remote Kaggle (free 30h/week GPU)
-localfit launch openwebui --model gemma4:e4b --remote kaggle --budget 1h
-localfit launch claude --model gemma4:31b --remote kaggle --budget 2h
-
-# Remote RunPod (paid, any GPU)
-localfit launch openwebui --model gemma4:31b --remote runpod --budget $2
-localfit launch claude --model llama3:70b --remote runpod --budget $5
-```
-
-Budget: `30m`, `1h`, `2h` (time) or `$1`, `$2`, `$5` (money → auto-calculates time on cheapest GPU).
-
-Shows remaining quota/balance before launch:
-```
-  Kaggle GPU quota: 17h remaining (of 30h/week)
-  Duration: 60min
-  
-  ✓ Endpoint ready: https://xxx.trycloudflare.com
-  ✓ Open WebUI launched: http://localhost:8080
-```
-
-### Supported Tools
+## Launch Any Tool
 
 | Tool | Command |
 |------|---------|
-| Open WebUI | `localfit launch openwebui` |
-| Claude Code | `localfit launch claude` |
-| OpenAI Codex | `localfit launch codex` |
-| OpenCode | `localfit launch opencode` |
-| aider | `localfit launch aider` |
-| Open WebUI + tunnel | `localfit launch webui --tunnel` |
+| Open WebUI | `localfit launch openwebui --model MODEL --img IMAGE` |
+| Claude Code | `localfit launch claude --model MODEL --img IMAGE` |
+| localcoder | `localfit launch localcoder --model MODEL --img IMAGE` |
+| OpenAI Codex | `localfit launch codex --model MODEL` |
+| OpenCode | `localfit launch opencode --model MODEL` |
+| aider | `localfit launch aider --model MODEL` |
 
-Works with both local and remote models. Env vars are **scoped to the subprocess only** — your normal tool setup is never touched.
+All tools are auto-configured with the right endpoints. Env vars scoped to subprocess — your normal setup is never touched.
+
+## Make It Fit — Remote Quantization
+
+```bash
+localfit makeitfit Qwen2.5-7B-Instruct
+# → Quantizes on Kaggle (free) or RunPod
+# → Uploads to your HuggingFace repo
+# → Run it: localfit run yourname/model-Q4_K_M-GGUF-localfit
+```
 
 ## All Commands
 
-### Model Management
-
 ```bash
-localfit run MODEL                    # interactive menu → pick backend → serve
+# Model management
+localfit run MODEL                    # interactive menu → serve
 localfit run MODEL --remote kaggle    # serve on free Kaggle GPU
-localfit run MODEL --cloud            # serve on RunPod (paid)
-localfit pull MODEL                   # download only
+localfit run MODEL --cloud            # serve on RunPod
+localfit run MODEL --img IMAGE_MODEL  # serve LLM + image model
+localfit show MODEL                   # quants + fit analysis + pricing
 localfit list                         # installed models
-localfit ps                           # running models
-localfit stop                         # stop local server
-localfit show MODEL                   # all quants + fit analysis + pricing
-```
+localfit stop                         # stop servers
 
-### Quantization
+# Image generation
+localfit launch openwebui --img klein-4b    # with Open WebUI
+localfit launch claude --img klein-4b       # with Claude Code MCP
 
-```bash
-localfit makeitfit MODEL              # quantize remotely → upload to HuggingFace
-localfit login huggingface            # save HF write token (for uploads)
-```
-
-### GPU & Hardware
-
-```bash
-localfit                              # GPU dashboard + trending models
-localfit health                       # GPU VRAM, temp, processes
-localfit specs                        # full machine specs
-localfit simulate                     # interactive "will this model fit?"
-localfit bench                        # benchmark installed models
-localfit arena                        # leaderboard on YOUR hardware
-localfit trending                     # top models with fit/cloud tags
-```
-
-### Tool Integration
-
-```bash
-localfit --launch TOOL                # start model + launch tool
-localfit --config TOOL                # show safe launch command
+# Tools
+localfit launch TOOL --model MODEL    # serve + launch tool
 localfit doctor                       # check all tool configs
-localfit restore                      # restore configs from backup
-```
 
-### Cloud & Remote
+# Hardware
+localfit                              # GPU dashboard + trending models
+localfit health                       # VRAM, temp, processes
+localfit bench                        # benchmark models
+localfit simulate                     # "will this model fit?"
 
-```bash
-localfit login kaggle                 # save Kaggle credentials
-localfit login runpod                 # save RunPod API key
+# Cloud
+localfit login kaggle                 # save credentials
+localfit login runpod                 # save API key
 localfit login huggingface            # save HF token
-localfit --remote-status              # check active Kaggle session
-localfit --remote-stop                # stop Kaggle session
-localfit --stop                       # stop RunPod pod
-```
+localfit --remote-status              # check Kaggle session
+localfit --remote-stop                # stop remote session
 
-### System
-
-```bash
-localfit check                        # check prerequisites (llama-server, CUDA, etc.)
+# System
+localfit check                        # check prerequisites
 localfit cleanup                      # free GPU memory
-localfit debloat                      # disable macOS services stealing GPU
+localfit makeitfit MODEL              # quantize remotely
 ```
 
 ## Supported Platforms
 
-| Platform | GPU Detection | Backends |
-|----------|--------------|----------|
-| macOS Apple Silicon | Metal | MLX + llama.cpp + Ollama |
-| Linux NVIDIA | CUDA (nvidia-smi) | llama.cpp + Ollama |
-| Linux AMD | ROCm (rocm-smi) | llama.cpp + Ollama |
-| Windows (WSL2) | CUDA (nvidia-smi) | llama.cpp + Ollama |
-
-## Dynamic VRAM Context Sizing
-
-localfit auto-calculates the optimal context window:
-
-| Machine | Model | Context |
-|---------|-------|---------|
-| M4 Pro 24GB | Gemma 4 26B (12GB) | 32K |
-| M4 Pro 24GB | Gemma 4 E4B (4.6GB) | 128K |
-| M4 Max 64GB | Gemma 4 26B (12GB) | 128K |
-
-## Cloud Setup
-
-### Kaggle (Free)
-
-```bash
-# 1. Get your Legacy API Key at https://www.kaggle.com/settings
-#    → "Legacy API Credentials" → "Create Legacy API Key" → downloads kaggle.json
-# 2. Save it:
-localfit login kaggle
-# 3. Run any model:
-localfit run gemma4:e4b --remote kaggle
-```
-
-### RunPod (Paid)
-
-```bash
-# 1. Get API key at https://www.runpod.io/console/user/settings
-# 2. Save it:
-localfit login runpod
-# 3. Run any model:
-localfit run gemma4:27b --cloud
-```
-
-### HuggingFace (For Uploads)
-
-```bash
-# 1. Create a write token at https://huggingface.co/settings/tokens
-# 2. Save it:
-localfit login huggingface
-# 3. Quantize + upload:
-localfit makeitfit Qwen2.5-7B-Instruct
-```
+| Platform | GPU | LLM | Image Gen |
+|----------|-----|-----|-----------|
+| macOS Apple Silicon | Metal | MLX + llama.cpp + Ollama | mflux (MLX native) |
+| Linux NVIDIA | CUDA | llama.cpp + Ollama | diffusers (CUDA) |
+| Linux AMD | ROCm | llama.cpp + Ollama | diffusers (ROCm) |
+| Windows (WSL2) | CUDA | llama.cpp + Ollama | diffusers (CUDA) |
+| Kaggle (free) | T4 16GB | Ollama via tunnel | diffusers via tunnel |
+| RunPod (paid) | Any GPU | Ollama via tunnel | diffusers via tunnel |
 
 ## Requirements
 
 - Python 3.10+
-- [llama.cpp](https://github.com/ggml-org/llama.cpp) or [Ollama](https://ollama.com) (auto-installed)
-- Optional: [mlx-lm](https://github.com/ml-explore/mlx-lm) for Apple Silicon MLX backend
+- Optional: [mflux](https://github.com/filipstrand/mflux) for Mac image gen
+- Optional: [Ollama](https://ollama.com) (auto-installed by localfit)
 
 ```bash
 pip install localfit                  # core
-pip install 'localfit[all]'           # + TUI dashboard + HF downloads
-pip install mlx-lm                    # + MLX backend (Mac only)
+pip install mflux                     # + image generation (Mac)
 ```
 
 ## License

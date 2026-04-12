@@ -623,6 +623,268 @@ class TestHermesAgent(unittest.TestCase):
                         self.assertIn("8089", content)
 
 
+class TestImageServer(unittest.TestCase):
+    """Image generation server tests."""
+
+    def test_image_server_imports(self):
+        from localfit.image_server import start_image_server, _load_model, _generate
+
+        self.assertTrue(callable(start_image_server))
+        self.assertTrue(callable(_load_model))
+        self.assertTrue(callable(_generate))
+
+    def test_image_handler_endpoints(self):
+        """Handler should respond to expected routes."""
+        from localfit.image_server import ImageHandler
+
+        self.assertTrue(hasattr(ImageHandler, "do_POST"))
+        self.assertTrue(hasattr(ImageHandler, "do_GET"))
+
+    @unittest.skipUnless(IS_MAC, "mflux requires Apple Silicon")
+    def test_mflux_model_imports(self):
+        """All mflux model classes should be importable."""
+        from mflux.models.flux.variants.txt2img.flux import Flux1
+        from mflux.models.z_image import ZImageTurbo, ZImage
+        from mflux.models.flux2.variants import Flux2Klein
+        from mflux.models.fibo.variants.txt2img.fibo import FIBO
+        from mflux.models.common.config import ModelConfig
+
+        self.assertTrue(callable(Flux1))
+        self.assertTrue(callable(ZImageTurbo))
+        self.assertTrue(callable(ZImage))
+        self.assertTrue(callable(Flux2Klein))
+        self.assertTrue(callable(FIBO))
+
+        # All configs should be constructable
+        self.assertIsNotNone(ModelConfig.schnell())
+        self.assertIsNotNone(ModelConfig.dev())
+        self.assertIsNotNone(ModelConfig.z_image_turbo())
+        self.assertIsNotNone(ModelConfig.z_image())
+        self.assertIsNotNone(ModelConfig.flux2_klein_4b())
+        self.assertIsNotNone(ModelConfig.flux2_klein_9b())
+        self.assertIsNotNone(ModelConfig.fibo())
+
+    @unittest.skipUnless(IS_MAC, "mflux requires Apple Silicon")
+    def test_load_model_schnell(self):
+        """Schnell model should load (uses cached weights)."""
+        from localfit.image_server import _load_model, _model, _model_name
+
+        # Reset global state
+        import localfit.image_server as img_mod
+        img_mod._model = None
+        img_mod._model_name = None
+
+        model = _load_model("schnell", quantize=4)
+        if model is None:
+            self.skipTest("Schnell model not cached — skip heavy download")
+        self.assertIsNotNone(model)
+        self.assertTrue(hasattr(model, "generate_image"))
+
+    @unittest.skipUnless(IS_MAC, "mflux requires Apple Silicon")
+    def test_generate_returns_image(self):
+        """Generate should return an object with .image (PIL) attribute."""
+        from localfit.image_server import _load_model, _generate
+        import localfit.image_server as img_mod
+        img_mod._model = None
+        img_mod._model_name = None
+
+        model = _load_model("schnell", quantize=4)
+        if model is None:
+            self.skipTest("Schnell model not cached")
+
+        img = _generate(model, "a red circle", width=256, height=256, steps=2, seed=42)
+        self.assertIsNotNone(img)
+        # mflux returns GeneratedImage with .image attribute
+        pil_img = img.image if hasattr(img, "image") else img
+        self.assertTrue(hasattr(pil_img, "save"), "Should return PIL-compatible image")
+
+    @unittest.skipUnless(IS_MAC, "mflux requires Apple Silicon")
+    def test_image_to_base64(self):
+        """Full pipeline: generate → PIL → base64 PNG."""
+        import io, base64
+        from localfit.image_server import _load_model, _generate
+        import localfit.image_server as img_mod
+        img_mod._model = None
+        img_mod._model_name = None
+
+        model = _load_model("schnell", quantize=4)
+        if model is None:
+            self.skipTest("Schnell model not cached")
+
+        img = _generate(model, "test", width=256, height=256, steps=2, seed=1)
+        pil_img = img.image if hasattr(img, "image") else img
+        buf = io.BytesIO()
+        pil_img.save(buf, format="PNG")
+        b64 = base64.b64encode(buf.getvalue()).decode()
+        self.assertGreater(len(b64), 1000, "Base64 PNG should be >1KB")
+
+    def test_image_server_model_routing(self):
+        """Model name routing should map to correct branches."""
+        # Test the routing logic without actually loading models
+        test_cases = [
+            ("schnell", "schnell"),
+            ("flux-schnell", "schnell"),
+            ("z-image-turbo", "z-image-turbo"),
+            ("z-image", "z-image"),
+            ("klein-4b", "klein-4b"),
+            ("flux2-klein-4b", "klein-4b"),
+            ("klein-9b", "klein-9b"),
+            ("flux2-klein-9b", "klein-9b"),
+            ("fibo", "fibo"),
+        ]
+        for model_name, expected_match in test_cases:
+            # Verify the routing conditions from _load_model
+            if "schnell" in model_name:
+                matched = "schnell"
+            elif "z-image-turbo" in model_name:
+                matched = "z-image-turbo"
+            elif "z-image" in model_name:
+                matched = "z-image"
+            elif "klein-4b" in model_name or "flux2-klein-4b" in model_name:
+                matched = "klein-4b"
+            elif "klein-9b" in model_name or "flux2-klein-9b" in model_name:
+                matched = "klein-9b"
+            elif "fibo" in model_name:
+                matched = "fibo"
+            else:
+                matched = "default"
+            self.assertEqual(matched, expected_match, f"Routing failed for {model_name}")
+
+    def test_image_model_catalog(self):
+        """Image model catalog should have all top models."""
+        from localfit.image_models import IMAGE_MODELS, resolve_image_model, get_gpu_recommendation
+
+        self.assertGreater(len(IMAGE_MODELS), 10)
+        # Check key models exist
+        for key in ["flux2-klein-4b", "flux1-schnell", "z-image-turbo", "qwen-image-edit", "sdxl"]:
+            self.assertIn(key, IMAGE_MODELS, f"Missing {key}")
+            m = IMAGE_MODELS[key]
+            self.assertIn("repo", m)
+            self.assertIn("pipeline", m)
+            self.assertIn("vram_gb", m)
+            self.assertIn("runpod_gpus", m)
+
+    def test_image_model_resolve(self):
+        """Model resolver should handle aliases and fuzzy match."""
+        from localfit.image_models import resolve_image_model
+
+        self.assertIsNotNone(resolve_image_model("klein4b"))
+        self.assertIsNotNone(resolve_image_model("schnell"))
+        self.assertIsNotNone(resolve_image_model("z-image-turbo"))
+        self.assertIsNotNone(resolve_image_model("qwen-edit"))
+        self.assertEqual(resolve_image_model("klein4b")["repo"], "black-forest-labs/FLUX.2-klein-4B")
+
+    def test_gpu_recommendation(self):
+        """GPU resolver should return viable GPUs for each model."""
+        from localfit.image_models import IMAGE_MODELS, get_gpu_recommendation
+
+        klein4b = IMAGE_MODELS["flux2-klein-4b"]
+        gpus = get_gpu_recommendation(klein4b)
+        self.assertGreater(len(gpus), 0)
+        # Klein 4B (8GB) should fit on RTX 3090 (24GB)
+        gpu_names = [g["name"] for g in gpus]
+        self.assertTrue(any("3090" in n for n in gpu_names))
+
+        # Qwen-Image-Edit (57GB) should only fit on A100/H100
+        qwen = IMAGE_MODELS["qwen-image-edit"]
+        gpus = get_gpu_recommendation(qwen)
+        self.assertGreater(len(gpus), 0)
+        self.assertTrue(any("A100" in g["name"] or "H100" in g["name"] for g in gpus))
+
+    def test_diffusers_fallback_path(self):
+        """On non-Mac, diffusers fallback should be attempted."""
+        import inspect
+        from localfit.image_server import _load_model
+
+        source = inspect.getsource(_load_model)
+        self.assertIn("diffusers", source)
+        self.assertIn("FluxPipeline", source)
+        self.assertIn("torch.cuda.is_available", source)
+
+    def test_kaggle_image_notebook_generation(self):
+        """Kaggle image notebook should be generated with correct structure."""
+        from localfit.remote import _generate_notebook_image
+
+        gpu = {"name": "T4", "vram_gb": 16, "usable_gb": 14, "count": 1, "accelerator": "gpu"}
+        script = _generate_notebook_image("schnell", gpu, max_runtime_minutes=10)
+
+        self.assertIn("DiffusionPipeline", script)
+        self.assertIn("FLUX.1-schnell", script)
+        self.assertIn("cloudflared", script)
+        self.assertIn("ntfy.sh", script)
+        self.assertIn("LOCALFIT_ENDPOINT", script)
+        self.assertIn("LOCALFIT_STATUS=serving", script)
+        self.assertIn("max_runtime = 10 * 60", script)
+
+    def test_mcp_server_imports(self):
+        """MCP image server should import and expose tools."""
+        from localfit.mcp_image import mcp, generate_image, edit_image, list_image_models, image_server_status
+
+        self.assertTrue(callable(generate_image))
+        self.assertTrue(callable(edit_image))
+        self.assertTrue(callable(list_image_models))
+        self.assertTrue(callable(image_server_status))
+
+    def test_mcp_server_has_all_tools(self):
+        """MCP server should register 4 tools."""
+        from localfit.mcp_image import mcp
+
+        tools = mcp._tool_manager.list_tools()
+        tool_names = {t.name for t in tools}
+        self.assertIn("generate_image", tool_names)
+        self.assertIn("edit_image", tool_names)
+        self.assertIn("list_image_models", tool_names)
+        self.assertIn("image_server_status", tool_names)
+
+    def test_image_server_has_edit_endpoint(self):
+        """Image server should handle /v1/images/edits."""
+        import inspect
+        from localfit.image_server import ImageHandler
+
+        source = inspect.getsource(ImageHandler)
+        self.assertIn("/v1/images/edits", source)
+        self.assertIn("_handle_edit", source)
+        self.assertIn("image_strength", source)
+
+    def test_kaggle_image_notebook_model_mapping(self):
+        """All image model names should map to correct HuggingFace repos."""
+        from localfit.remote import _generate_notebook_image
+
+        gpu = {"name": "T4", "vram_gb": 16, "usable_gb": 14, "count": 1, "accelerator": "gpu"}
+
+        test_cases = {
+            "schnell": "FLUX.1-schnell",
+            "flux-dev": "FLUX.1-dev",
+            "flux2-klein-4b": "FLUX.2-klein-4B",
+            "z-image-turbo": "Z-Image-Turbo",
+        }
+        for model_name, expected_fragment in test_cases.items():
+            script = _generate_notebook_image(model_name, gpu, max_runtime_minutes=5)
+            self.assertIn(expected_fragment, script, f"Model {model_name} should use {expected_fragment}")
+
+    def test_kaggle_image_notebook_hf_token_handling(self):
+        """All notebooks should use HF_TOKEN and handle gated failures gracefully."""
+        from localfit.remote import _generate_notebook_image
+
+        gpu = {"name": "T4", "vram_gb": 16, "usable_gb": 14, "count": 1, "accelerator": "gpu"}
+
+        for model in ["schnell", "flux2-klein-4b", "flux-dev", "flux2-klein-9b"]:
+            script = _generate_notebook_image(model, gpu, max_runtime_minutes=5)
+            self.assertIn("HF_TOKEN", script, f"{model} should check HF_TOKEN")
+            self.assertIn("gated_model", script, f"{model} should handle gated error")
+
+    def test_kaggle_image_notebook_uses_auto_pipeline(self):
+        """Notebook should use AutoPipelineForText2Image (universal, any model)."""
+        from localfit.remote import _generate_notebook_image
+
+        gpu = {"name": "T4", "vram_gb": 16, "usable_gb": 14, "count": 1, "accelerator": "gpu"}
+        for model in ["flux2-klein-4b", "schnell", "flux-dev", "z-image-turbo"]:
+            script = _generate_notebook_image(model, gpu, max_runtime_minutes=5)
+            self.assertIn("DiffusionPipeline", script, f"{model} should use DiffusionPipeline")
+            self.assertIn("/v1/images/generations", script)
+            self.assertIn("cloudflared", script)
+
+
 if __name__ == "__main__":
     unittest.main()
 

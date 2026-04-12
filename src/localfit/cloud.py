@@ -361,6 +361,96 @@ def create_pod(
     return _runpod_api(query, api_key)
 
 
+STARTUP_SCRIPT_IMAGE = """#!/bin/bash
+set -e
+echo "[localfit] Installing diffusers..."
+pip install -q -U 'git+https://github.com/huggingface/diffusers.git' transformers accelerate sentencepiece 2>&1 | tail -2
+
+echo "[localfit] Installing cloudflared..."
+curl -fsSL -o /usr/local/bin/cloudflared \\
+  https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \\
+  && chmod +x /usr/local/bin/cloudflared
+
+echo "[localfit] GPU:"
+nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
+
+echo "[localfit] Loading {model_repo}..."
+python3 << 'PYEOF'
+import torch,json,base64,io,time,os,re,threading
+from http.server import HTTPServer,BaseHTTPRequestHandler
+from diffusers import DiffusionPipeline
+print(f"GPU: {{torch.cuda.get_device_name(0)}}")
+p=DiffusionPipeline.from_pretrained("{model_repo}",torch_dtype=torch.bfloat16).to("cuda")
+print("MODEL_LOADED")
+class H(BaseHTTPRequestHandler):
+ def do_POST(self):
+  if self.path=="/v1/images/generations":
+   l=int(self.headers.get("Content-Length",0));b=json.loads(self.rfile.read(l)) if l else {{}}
+   s=b.get("size","512x512");w,h=(int(x) for x in s.split("x"))
+   r=p(prompt=b.get("prompt","cat"),width=w,height=h,num_inference_steps=b.get("steps",4))
+   buf=io.BytesIO();r.images[0].save(buf,format="PNG")
+   d=json.dumps({{"created":int(time.time()),"data":[{{"b64_json":base64.b64encode(buf.getvalue()).decode()}}]}}).encode()
+   self.send_response(200);self.send_header("Content-Type","application/json");self.send_header("Content-Length",len(d));self.end_headers();self.wfile.write(d)
+ def do_GET(self):
+  d=json.dumps({{"status":"ok","model":"{model_repo}"}}).encode()
+  self.send_response(200);self.send_header("Content-Type","application/json");self.send_header("Content-Length",len(d));self.end_headers();self.wfile.write(d)
+ def log_message(self,*a):pass
+srv=HTTPServer(("0.0.0.0",8189),H);threading.Thread(target=srv.serve_forever,daemon=True).start()
+print("API on :8189")
+os.system("nohup cloudflared tunnel --url http://localhost:8189 >/tmp/cf.log 2>&1 &")
+time.sleep(10)
+with open("/tmp/cf.log") as f:log=f.read()
+m=re.search(r"https://[\\w-]+\\.trycloudflare\\.com",log)
+if m:
+ url=m.group(0);print(f"LOCALFIT_TUNNEL={{url}}")
+ import urllib.request as ur;ur.urlopen("https://ntfy.sh/localfit-img-{ntfy_topic}",data=url.encode(),timeout=5)
+ print(f"LOCALFIT_READY")
+else:
+ print("LOCALFIT_TUNNEL=FAILED")
+while True:time.sleep(30)
+PYEOF
+"""
+
+
+def create_pod_image(api_key, gpu_id, name, model_repo, container_disk=40):
+    """Create a RunPod GPU pod for image generation with diffusers + Cloudflare tunnel."""
+    import re as _re
+
+    ntfy_topic = _re.sub(r"[^a-z0-9]+", "-", model_repo.lower())[:40]
+    script = STARTUP_SCRIPT_IMAGE.replace("{model_repo}", model_repo).replace("{ntfy_topic}", ntfy_topic)
+
+    script_escaped = (
+        script.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+    )
+
+    query = f'''
+    mutation {{
+      podFindAndDeployOnDemand(
+        input: {{
+          cloudType: ALL
+          gpuCount: 1
+          containerDiskInGb: {container_disk}
+          gpuTypeId: "{gpu_id}"
+          name: "{name}"
+          imageName: "runpod/pytorch:1.0.3-cu1290-torch280-ubuntu2204"
+          ports: "8189/http"
+          dockerArgs: "bash -c '{script_escaped}'"
+          env: [
+            {{ key: "LOCALFIT_MODEL", value: "{model_repo}" }}
+          ]
+        }}
+      ) {{
+        id
+        machine {{
+          gpuDisplayName
+        }}
+      }}
+    }}
+    '''
+
+    return _runpod_api(query, api_key)
+
+
 def get_pod(api_key, pod_id):
     """Get pod status."""
     query = f'''

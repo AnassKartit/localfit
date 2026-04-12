@@ -145,6 +145,12 @@ tool integration:
         help="Model to serve (used with --launch, e.g. unsloth/Qwen3.5-35B-A3B)",
     )
     parser.add_argument(
+        "--img",
+        type=str,
+        metavar="IMAGE_MODEL",
+        help="Image model to serve alongside LLM (e.g. flux2-klein-4b, schnell, z-image-turbo)",
+    )
+    parser.add_argument(
         "--debloat", action="store_true", help="Disable macOS services stealing GPU"
     )
     parser.add_argument(
@@ -554,6 +560,25 @@ tool integration:
             return
         if args.remote:
             provider = args.remote.lower().strip()
+
+            # If --img is set, also start remote image serving
+            if getattr(args, "img", None):
+                img_model = args.img
+                from localfit.image_models import resolve_image_model
+                img_info = resolve_image_model(img_model)
+                if img_info:
+                    console.print(f"\n  [bold]Image model:[/] {img_info['repo']} ({img_info['pipeline']})")
+                if provider == "kaggle":
+                    from localfit.remote import _generate_notebook_image, _push_kaggle_kernel, KAGGLE_GPUS
+                    t4 = KAGGLE_GPUS[0]
+                    hf_repo = img_info["repo"] if img_info else f"black-forest-labs/FLUX.2-klein-4B"
+                    script = _generate_notebook_image(img_model, t4, max_runtime_minutes=getattr(args, "duration", None) or 15)
+                    console.print(f"  [dim]Pushing image notebook to Kaggle...[/]")
+                    ref = _push_kaggle_kernel(script, f"img-{img_model[:20]}", t4["accelerator"])
+                    if ref:
+                        console.print(f"  [green]✓[/] Image notebook pushed: {ref}")
+                        console.print(f"  [dim]Polling ntfy for tunnel URL...[/]")
+
             if provider == "kaggle":
                 from localfit.remote import remote_serve_kaggle
 
@@ -641,14 +666,19 @@ tool integration:
 
             console.print(f"  Duration: {duration}min\n")
 
-            # Serve remotely
+            # Serve remotely, then launch tool with the endpoint
+            image_model = getattr(args, "img", None)
+
             if provider == "kaggle":
                 from localfit.remote import remote_serve_kaggle
-                remote_serve_kaggle(model, max_runtime_minutes=duration)
-                # After serve returns, the tool menu was already shown
+                endpoint = remote_serve_kaggle(model, max_runtime_minutes=duration)
+                if endpoint and args.launch:
+                    _launch_tool_with_endpoint(args.launch, f"{endpoint}/v1", model, image_model=image_model)
             elif provider in ("runpod", "cloud"):
                 from localfit.cloud import cloud_serve
-                cloud_serve(model)
+                endpoint = cloud_serve(model)
+                if endpoint and args.launch:
+                    _launch_tool_with_endpoint(args.launch, f"{endpoint}/v1", model, image_model=image_model)
             return
 
         # Local launch: serve locally + launch tool
@@ -1938,14 +1968,106 @@ def _arrow_tool_picker(title="Launch a tool", endpoint_info=None):
         return None
 
 
-def _launch_tool_with_endpoint(tool, api_base, model_name="localmodel"):
+def _find_free_port(start=8189):
+    """Find a free port starting from `start`."""
+    import socket
+    for port in range(start, start + 20):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("127.0.0.1", port))
+                return port
+        except OSError:
+            continue
+    return start + 20
+
+
+def _start_image_server(image_model="klein-4b", quantize=4):
+    """Start the localfit image server in background if not running."""
+    import subprocess
+
+    # Check if already running on 8189
+    try:
+        import urllib.request
+        with urllib.request.urlopen("http://127.0.0.1:8189/health", timeout=2) as r:
+            import json
+            health = json.loads(r.read())
+            if health.get("status") == "ok":
+                console.print(f"  [green]✓[/] Image server already running: {health.get('model', '?')}")
+                return 8189
+    except Exception:
+        pass
+
+    # Find free port
+    port = _find_free_port(8189)
+    if port != 8189:
+        console.print(f"  [dim]Port 8189 busy, using {port}[/]")
+
+    # Resolve model name
+    from localfit.image_models import resolve_image_model
+    model_info = resolve_image_model(image_model)
+    if model_info:
+        console.print(f"  Starting image server: [cyan]{model_info['repo']}[/] ({model_info['pipeline']})")
+    else:
+        console.print(f"  Starting image server: [cyan]{image_model}[/]")
+
+    # Start in background
+    python_exe = sys.executable
+    proc = subprocess.Popen(
+        [python_exe, "-m", "localfit.image_server", str(port), image_model, str(quantize)],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+
+    # Wait for ready
+    import time
+    console.print(f"  [dim]Loading model (first run downloads weights)...[/]")
+    for i in range(60):
+        time.sleep(2)
+        try:
+            import urllib.request
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as r:
+                import json
+                health = json.loads(r.read())
+                if health.get("status") == "ok":
+                    console.print(f"  [green]✓[/] Image server ready on :{port} ({health.get('model', '?')})")
+                    return port
+        except Exception:
+            pass
+
+    console.print(f"  [yellow]Image server still loading on :{port}...[/]")
+    return port
+
+
+def _launch_tool_with_endpoint(tool, api_base, model_name="localmodel", image_model=None):
     """Launch a tool connected to a specific API endpoint (local or remote). No model picker."""
     import subprocess, webbrowser
 
     console.print(f"  Connecting to: [cyan]{api_base}[/]")
 
+    # Start image server if requested (local) or use remote tunnel
+    img_port = 8189
+    img_url = None
+    if image_model:
+        # Check if we already have a remote image tunnel (from ntfy)
+        try:
+            import urllib.request as _wr2
+            ntfy_topic = f"localfit-img-{image_model}".replace("/", "-").replace(":", "-")[:40]
+            _r = _wr2.urlopen(f"https://ntfy.sh/{ntfy_topic}/json?poll=1&since=5m", timeout=5)
+            import json as _j2
+            for line in _r.read().decode().strip().split("\n"):
+                if line.strip():
+                    msg = _j2.loads(line).get("message", "")
+                    if "trycloudflare" in msg:
+                        img_url = msg
+        except Exception:
+            pass
+
+        if img_url:
+            console.print(f"  [green]✓[/] Remote image server: {img_url}")
+        else:
+            img_port = _start_image_server(image_model)
+
     if tool in ("webui", "open-webui", "openwebui", "chat"):
-        webui_port = 8080
+        webui_port = _find_free_port(9090)  # 9090+ range, rarely busy
         webui_dir = os.path.expanduser("~/.localfit/open-webui")
         os.makedirs(webui_dir, exist_ok=True)
         env = os.environ.copy()
@@ -1955,6 +2077,17 @@ def _launch_tool_with_endpoint(tool, api_base, model_name="localmodel"):
         env["ENABLE_OLLAMA_API"] = "False"
         env["DATA_DIR"] = webui_dir
         env["DEFAULT_MODELS"] = model_name
+
+        # Image generation config
+        if image_model:
+            env["ENABLE_IMAGE_GENERATION"] = "True"
+            env["IMAGE_GENERATION_ENGINE"] = "automatic1111"
+            if img_url:
+                env["AUTOMATIC1111_BASE_URL"] = img_url
+                console.print(f"  [green]✓[/] Image: {image_model} (remote: {img_url})")
+            else:
+                env["AUTOMATIC1111_BASE_URL"] = f"http://127.0.0.1:{img_port}"
+                console.print(f"  [green]✓[/] Image: {image_model} (local :{img_port})")
         db_path = os.path.join(webui_dir, "webui.db")
         if not os.path.exists(db_path):
             env["WEBUI_AUTH"] = "False"
@@ -1978,27 +2111,56 @@ def _launch_tool_with_endpoint(tool, api_base, model_name="localmodel"):
             except Exception:
                 pass
 
-        try:
-            subprocess.Popen(
-                ["uv", "run", "--python", "3.11", "--with", "open-webui", "--", "open-webui", "serve", "--port", str(webui_port)],
-                env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
-            console.print(f"  [green]✓ Open WebUI starting on http://localhost:{webui_port}[/]")
-            import time; time.sleep(3)
-            webbrowser.open(f"http://localhost:{webui_port}")
-        except FileNotFoundError:
+        launched = False
+        for cmd in [
+            ["uv", "run", "--python", "3.11", "--with", "open-webui", "--", "open-webui", "serve", "--port", str(webui_port)],
+            ["open-webui", "serve", "--port", str(webui_port)],
+        ]:
             try:
-                subprocess.Popen(
-                    ["open-webui", "serve", "--port", str(webui_port)],
-                    env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                )
-                console.print(f"  [green]✓ Open WebUI starting on http://localhost:{webui_port}[/]")
-                import time; time.sleep(3)
-                webbrowser.open(f"http://localhost:{webui_port}")
+                subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                launched = True
+                break
             except FileNotFoundError:
-                console.print(f"  [red]Open WebUI not installed.[/]")
-                console.print(f"  [dim]Install: pip install open-webui[/]")
-                console.print(f"  [dim]Or: uv tool install open-webui[/]")
+                continue
+
+        if not launched:
+            console.print(f"  [red]Open WebUI not installed.[/]")
+            console.print(f"  [dim]Install: pip install open-webui[/]")
+            return
+
+        console.print(f"  [green]✓ Open WebUI starting on http://localhost:{webui_port}[/]")
+
+        # Wait for ready + auto-configure image gen
+        import time, urllib.request as _wr
+        for _i in range(30):
+            time.sleep(2)
+            try:
+                _wr.urlopen(f"http://localhost:{webui_port}/api/config", timeout=2)
+                break
+            except Exception:
+                pass
+
+        if image_model:
+            # Auto-enable image toggle for default user
+            try:
+                _signin = _wr.Request(
+                    f"http://localhost:{webui_port}/api/v1/auths/signin",
+                    data=json.dumps({"email": "admin@localhost", "password": "admin"}).encode(),
+                    headers={"Content-Type": "application/json"},
+                )
+                _token = json.loads(_wr.urlopen(_signin, timeout=5).read()).get("token", "")
+                if _token:
+                    _settings = _wr.Request(
+                        f"http://localhost:{webui_port}/api/v1/users/user/settings/update",
+                        data=json.dumps({"ui": {"imageGeneration": True}}).encode(),
+                        headers={"Authorization": f"Bearer {_token}", "Content-Type": "application/json"},
+                    )
+                    _wr.urlopen(_settings, timeout=5)
+                    console.print(f"  [green]✓[/] Image generation enabled by default")
+            except Exception:
+                console.print(f"  [dim]Tip: Enable Image toggle in chat to generate images[/]")
+
+        webbrowser.open(f"http://localhost:{webui_port}")
 
     elif tool in ("claude",):
         from localfit.proxy import PROXY_PORT, ensure_proxy_process
@@ -3014,13 +3176,19 @@ def _launch_tool(tool_name, model_name=None, tunnel=False):
         # Use the original model name (e.g. "gemma4-e4b") not the GGUF filename
         # Resolve colon syntax: gemma4:e4b → gemma4-e4b
         lc_model = (model_name or model_alias).replace(":", "-")
-        cmd = ["localcoder", "--api", f"http://localhost:{port}", "-m", lc_model]
+        cmd = ["localcoder", "--api", f"http://localhost:{port}", "-m", lc_model, "--compact", "--yolo"]
 
         localcoder_bin = shutil.which("localcoder")
         if not localcoder_bin:
             console.print(f"  [red]localcoder not installed.[/]")
             console.print(f"  [dim]Install: pipx install localcoder[/]\n")
             return
+
+        # Set image endpoint for localcoder
+        if image_model:
+            img_endpoint = img_url or f"http://127.0.0.1:{img_port}"
+            env["LOCALFIT_IMAGE_ENDPOINT"] = img_endpoint
+            console.print(f"  [green]✓[/] Image: {image_model} ({img_endpoint})")
 
         console.print(
             f"  [bold]Launching:[/] localcoder --api http://localhost:{port} -m {lc_model}"
@@ -3047,7 +3215,7 @@ def _launch_tool(tool_name, model_name=None, tunnel=False):
 
     elif tool in ("webui", "open-webui", "openwebui", "chat"):
         # Smart endpoint picker: detect local + remote models
-        webui_port = 8080
+        webui_port = _find_free_port(9090)
         api_base = None
         import urllib.request as _wr
 

@@ -10,3 +10,7 @@ __pycache__/
 .pytest_cache/
 .runpod/
 macbookbenchmark.md
+albert_einstein.png
+*.png
+.localcoder-*
+opencode.json
