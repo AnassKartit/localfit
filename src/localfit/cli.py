@@ -388,9 +388,22 @@ tool integration:
                 return
             if key:
                 save_modal_key(key)
+        elif service in ("azure", "azurefoundry", "azure-foundry"):
+            from localfit.cloud import save_azure_config
+
+            console.print(f"\n  [bold]Azure AI Foundry[/]\n")
+            console.print(f"  Your Azure OpenAI endpoint URL:")
+            console.print(f"  [dim](e.g. https://myresource.openai.azure.com/openai/v1/)[/]\n")
+            try:
+                endpoint = input("  Endpoint: ").strip()
+                key = input("  API Key: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                return
+            if endpoint and key:
+                save_azure_config(endpoint, key)
         else:
             console.print(
-                f"  [red]Unknown service: {args.login}. Supported: runpod, kaggle, modal, huggingface[/]"
+                f"  [red]Unknown service: {args.login}. Supported: runpod, kaggle, modal, azurefoundry, huggingface[/]"
             )
         return
 
@@ -677,10 +690,17 @@ tool integration:
                     args.serve, tool=args.launch if hasattr(args, "launch") else None
                 )
                 return
+            elif provider in ("azure", "azurefoundry", "azure-foundry"):
+                from localfit.cloud import azure_serve
+
+                result = azure_serve(
+                    args.serve, tool=args.launch if hasattr(args, "launch") else None
+                )
+                return
             else:
                 console.print(f"  [red]Unknown remote provider: {provider}[/]")
                 console.print(
-                    f"  [dim]Supported: kaggle (free T4), runpod (paid), modal (serverless)[/]"
+                    f"  [dim]Supported: kaggle (free T4), runpod (paid), modal (serverless), azurefoundry[/]"
                 )
                 return
         # Use wizard — shows run menu (MLX/GGUF/Remote), serves, then tool picker
@@ -825,6 +845,14 @@ tool integration:
                     _launch_tool_with_endpoint(
                         args.launch, f"{endpoint}/v1", model, image_model=image_model
                     )
+            elif provider in ("azure", "azurefoundry", "azure-foundry"):
+                from localfit.cloud import azure_serve
+
+                azure_serve(model, tool=args.launch)
+            elif provider == "modal":
+                from localfit.cloud import modal_serve
+
+                modal_serve(model, tool=args.launch)
             return
 
         # Local launch: serve locally + launch tool

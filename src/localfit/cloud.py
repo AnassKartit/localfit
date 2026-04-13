@@ -23,6 +23,8 @@ console = Console()
 CONFIG_DIR = Path.home() / ".localfit"
 RUNPOD_KEY_FILE = CONFIG_DIR / "runpod_key"
 MODAL_KEY_FILE = CONFIG_DIR / "modal_key"
+AZURE_KEY_FILE = CONFIG_DIR / "azure_key"
+AZURE_ENDPOINT_FILE = CONFIG_DIR / "azure_endpoint"
 
 # Modal endpoints for popular models
 MODAL_MODELS = {
@@ -133,6 +135,86 @@ def modal_serve(model_query, tool=None):
         _launch_tool_with_endpoint(tool, api_base, model_id)
 
     return {"api_base": api_base, "model_id": model_id, "token": token}
+
+
+# ── Azure AI Foundry ──
+
+
+def save_azure_config(endpoint, key):
+    """Save Azure AI Foundry endpoint + key."""
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    AZURE_ENDPOINT_FILE.write_text(endpoint.strip())
+    AZURE_KEY_FILE.write_text(key.strip())
+    AZURE_KEY_FILE.chmod(0o600)
+    console.print(f"  [green]✓[/] Azure config saved")
+
+
+def get_azure_config():
+    """Get Azure AI Foundry endpoint + key."""
+    endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
+    key = os.environ.get("AZURE_OPENAI_API_KEY", os.environ.get("AZURE_API_KEY", ""))
+    if not endpoint and AZURE_ENDPOINT_FILE.exists():
+        endpoint = AZURE_ENDPOINT_FILE.read_text().strip()
+    if not key and AZURE_KEY_FILE.exists():
+        key = AZURE_KEY_FILE.read_text().strip()
+    return endpoint, key
+
+
+def azure_serve(model_query, tool=None):
+    """Connect to Azure AI Foundry (OpenAI-compatible).
+
+    Supports Azure OpenAI deployments and Azure AI model catalog.
+    """
+    endpoint, key = get_azure_config()
+
+    if not endpoint or not key:
+        console.print(f"\n  [bold]Azure AI Foundry[/]\n")
+        console.print(f"  Your Azure endpoint URL (e.g. https://myresource.openai.azure.com/openai/v1/):")
+        try:
+            endpoint = input("  Endpoint: ").strip()
+            key = input("  API Key: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return None
+        if not endpoint or not key:
+            return None
+        save_azure_config(endpoint, key)
+
+    # Normalize endpoint
+    api_base = endpoint.rstrip("/")
+    if not api_base.endswith("/v1"):
+        api_base = f"{api_base}/v1" if "/openai" in api_base else api_base
+
+    model_id = model_query
+
+    console.print(f"\n  [green]✓[/] Azure AI Foundry")
+    console.print(f"  [dim]Endpoint: {api_base}[/]")
+    console.print(f"  [dim]Model/Deployment: {model_id}[/]")
+
+    # Test connection
+    try:
+        req = urllib.request.Request(
+            f"{api_base}/models",
+            headers={"api-key": key, "Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+            models = [m.get("id", "") for m in data.get("data", [])]
+            console.print(f"  [green]✓[/] Connected — {len(models)} models available")
+    except Exception as e:
+        console.print(f"  [dim]Connection test: {e}[/]")
+        console.print(f"  [dim]Continuing (Azure may require deployment-specific access)...[/]")
+
+    # Set env vars for tools
+    os.environ["OPENAI_API_KEY"] = key
+    os.environ["OPENAI_API_BASE"] = api_base
+    os.environ["AZURE_OPENAI_API_KEY"] = key
+    os.environ["AZURE_OPENAI_ENDPOINT"] = endpoint
+
+    if tool:
+        from localfit.cli import _launch_tool_with_endpoint
+        _launch_tool_with_endpoint(tool, api_base, model_id)
+
+    return {"api_base": api_base, "model_id": model_id, "key": key}
 
 
 # GPU options with pricing (approximate, RunPod varies by availability)
