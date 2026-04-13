@@ -22,6 +22,118 @@ from rich.console import Console
 console = Console()
 CONFIG_DIR = Path.home() / ".localfit"
 RUNPOD_KEY_FILE = CONFIG_DIR / "runpod_key"
+MODAL_KEY_FILE = CONFIG_DIR / "modal_key"
+
+# Modal endpoints for popular models
+MODAL_MODELS = {
+    "glm-5.1": {
+        "url": "https://api.us-west-2.modal.direct/v1",
+        "model_id": "zai-org/GLM-5.1-FP8",
+        "name": "GLM-5.1 (754B MoE)",
+    },
+    "glm-5": {
+        "url": "https://api.us-west-2.modal.direct/v1",
+        "model_id": "zai-org/GLM-5-FP8",
+        "name": "GLM-5 (744B MoE)",
+    },
+}
+
+
+# ── Modal ──
+
+
+def save_modal_key(key):
+    """Save Modal API token."""
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    MODAL_KEY_FILE.write_text(key.strip())
+    MODAL_KEY_FILE.chmod(0o600)
+    console.print(f"  [green]✓[/] Modal token saved")
+
+
+def get_modal_key():
+    """Get Modal API token."""
+    key = os.environ.get("MODAL_TOKEN") or os.environ.get("MODAL_API_KEY")
+    if key:
+        return key
+    if MODAL_KEY_FILE.exists():
+        return MODAL_KEY_FILE.read_text().strip()
+    return None
+
+
+def modal_serve(model_query, tool=None):
+    """Connect to a model via Modal's API.
+
+    No pod management needed -- just token + URL.
+    Works with any OpenAI-compatible client.
+    """
+    token = get_modal_key()
+    if not token:
+        console.print(f"\n  [bold]Modal — serverless cloud GPUs[/]\n")
+        console.print(f"  1. Get a token at [cyan]https://modal.com/settings/tokens[/]")
+        console.print(f"  2. Paste it below:\n")
+        try:
+            token = input("  Modal token: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return None
+        if not token:
+            return None
+        save_modal_key(token)
+
+    # Find model endpoint
+    modal_info = None
+    query_lower = model_query.lower().replace(":", "-").replace(" ", "-")
+    for mid, info in MODAL_MODELS.items():
+        if mid in query_lower or query_lower in mid:
+            modal_info = info
+            break
+
+    if not modal_info:
+        # Custom model -- user provides their own Modal endpoint
+        console.print(f"\n  [dim]Model '{model_query}' not in Modal presets.[/]")
+        console.print(f"  [dim]Enter your Modal endpoint URL (OpenAI-compatible):[/]")
+        try:
+            url = input("  URL: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return None
+        if not url:
+            return None
+        modal_info = {"url": url, "model_id": model_query, "name": model_query}
+
+    api_base = modal_info["url"]
+    model_id = modal_info["model_id"]
+
+    console.print(f"\n  [green]✓[/] Modal: {modal_info['name']}")
+    console.print(f"  [dim]API: {api_base}[/]")
+    console.print(f"  [dim]Model: {model_id}[/]")
+
+    # Test connection
+    try:
+        req = urllib.request.Request(
+            f"{api_base}/models",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+            models = [m.get("id", "") for m in data.get("data", [])]
+            console.print(f"  [green]✓[/] Connected — {len(models)} models available")
+    except Exception as e:
+        console.print(f"  [yellow]Warning: Could not verify connection ({e})[/]")
+        console.print(f"  [dim]Continuing anyway — model may need a cold start...[/]")
+
+    # Launch tool if requested
+    if tool:
+        from localfit.cli import _launch_tool_with_endpoint
+
+        # Set auth header for tools that need it
+        os.environ["OPENAI_API_KEY"] = token
+        os.environ["OPENAI_API_BASE"] = api_base
+        _launch_tool_with_endpoint(tool, api_base, model_id)
+
+    return {"api_base": api_base, "model_id": model_id, "token": token}
+
 
 # GPU options with pricing (approximate, RunPod varies by availability)
 GPU_OPTIONS = []  # populated at runtime from API
@@ -417,7 +529,9 @@ def create_pod_image(api_key, gpu_id, name, model_repo, container_disk=40):
     import re as _re
 
     ntfy_topic = _re.sub(r"[^a-z0-9]+", "-", model_repo.lower())[:40]
-    script = STARTUP_SCRIPT_IMAGE.replace("{model_repo}", model_repo).replace("{ntfy_topic}", ntfy_topic)
+    script = STARTUP_SCRIPT_IMAGE.replace("{model_repo}", model_repo).replace(
+        "{ntfy_topic}", ntfy_topic
+    )
 
     script_escaped = (
         script.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")

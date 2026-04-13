@@ -1769,21 +1769,41 @@ def start_llama_server(model_id, port=8089):
     if specs.get("cpu_only"):
         default_flags = "-ngl 0 -c 8192 --jinja"
     else:
-        # Dynamic context: use available VRAM after model + mmproj load
-        # KV cache cost ≈ 60MB per 1K context (Q4_0 quantized KV)
-        free_mb = max(
-            0, gpu_total_mb - model_size_mb - mmproj_mb - 512
-        )  # 512MB headroom
-        kv_per_1k = 60  # MB per 1K tokens with -ctk q4_0 -ctv q4_0
-        max_ctx = int(free_mb / kv_per_1k * 1024)
-        # Clamp to reasonable range
-        max_ctx = max(4096, min(max_ctx, 131072))
-        # Round to nearest power-of-2-ish
-        for nice in [131072, 65536, 32768, 16384, 8192, 4096]:
-            if max_ctx >= nice:
-                max_ctx = nice
-                break
-        default_flags = f"-ngl 99 -c {max_ctx} --jinja"
+        # Check if model is bigger than GPU -- use --fit on for auto offloading
+        model_fits_gpu = (model_size_mb + mmproj_mb + 512) < gpu_total_mb
+
+        if model_fits_gpu:
+            # Model fits entirely in GPU -- use -ngl 99 (all layers on GPU)
+            free_mb = max(0, gpu_total_mb - model_size_mb - mmproj_mb - 512)
+            kv_per_1k = 60
+            max_ctx = int(free_mb / kv_per_1k * 1024)
+            max_ctx = max(4096, min(max_ctx, 131072))
+            for nice in [131072, 65536, 32768, 16384, 8192, 4096]:
+                if max_ctx >= nice:
+                    max_ctx = nice
+                    break
+            default_flags = f"-ngl 99 -c {max_ctx} -fa on --jinja"
+        else:
+            # Model bigger than GPU -- use --fit on (auto GPU+RAM hybrid)
+            # llama.cpp auto-decides which layers go to GPU vs RAM
+            ram_gb = specs.get("ram_gb", 0)
+            total_mem_mb = gpu_total_mb + (ram_gb * 1024)
+            if (model_size_mb + mmproj_mb) < total_mem_mb:
+                # Fits in GPU+RAM combined
+                max_ctx = 16384 if model_size_mb > 100000 else 32768
+                default_flags = f"--fit on -c {max_ctx} -fa on --jinja"
+                console.print(
+                    f"  [cyan]Using --fit on (GPU+RAM hybrid) — model {model_size_mb // 1024}GB > GPU {gpu_total_mb // 1024}GB[/]"
+                )
+            else:
+                # Even GPU+RAM isn't enough — need cloud
+                console.print(
+                    f"  [red]Model {model_size_mb // 1024}GB exceeds GPU+RAM ({total_mem_mb // 1024}GB)[/]"
+                )
+                console.print(
+                    f"  [dim]Try: localfit --serve {model_id} --remote runpod[/]"
+                )
+                return None
 
     flags = m.get("server_flags", default_flags).split()
 

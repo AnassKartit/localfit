@@ -151,6 +151,18 @@ tool integration:
         help="Image model to serve alongside LLM (e.g. flux2-klein-4b, schnell, z-image-turbo)",
     )
     parser.add_argument(
+        "--api",
+        type=str,
+        metavar="URL",
+        help="Connect to any OpenAI-compatible API (Azure, Groq, Together, Modal, etc.)",
+    )
+    parser.add_argument(
+        "--key",
+        type=str,
+        metavar="API_KEY",
+        help="API key for --api endpoint (or set OPENAI_API_KEY env var)",
+    )
+    parser.add_argument(
         "--debloat", action="store_true", help="Disable macOS services stealing GPU"
     )
     parser.add_argument(
@@ -364,9 +376,21 @@ tool integration:
             from localfit.remote import save_kaggle_credentials
 
             save_kaggle_credentials()
+        elif service == "modal":
+            from localfit.cloud import save_modal_key
+
+            console.print(f"\n  [bold]Modal — serverless cloud GPUs[/]\n")
+            console.print(f"  Get your token at:")
+            console.print(f"  [cyan]https://modal.com/settings/tokens[/]\n")
+            try:
+                key = input("  Paste token: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                return
+            if key:
+                save_modal_key(key)
         else:
             console.print(
-                f"  [red]Unknown service: {args.login}. Supported: runpod, kaggle, huggingface[/]"
+                f"  [red]Unknown service: {args.login}. Supported: runpod, kaggle, modal, huggingface[/]"
             )
         return
 
@@ -444,9 +468,12 @@ tool integration:
 
         # Kill image server if running
         import subprocess as _sp_cleanup
+
         killed_img = False
         try:
-            _sp_cleanup.run(["pkill", "-f", "localfit.image_server"], capture_output=True, timeout=5)
+            _sp_cleanup.run(
+                ["pkill", "-f", "localfit.image_server"], capture_output=True, timeout=5
+            )
             killed_img = True
         except Exception:
             pass
@@ -454,7 +481,9 @@ tool integration:
         # Kill Open WebUI if running
         killed_webui = False
         try:
-            _sp_cleanup.run(["pkill", "-f", "open-webui"], capture_output=True, timeout=5)
+            _sp_cleanup.run(
+                ["pkill", "-f", "open-webui"], capture_output=True, timeout=5
+            )
             killed_webui = True
         except Exception:
             pass
@@ -463,7 +492,12 @@ tool integration:
             console.print(f"  [green]Stopped image server[/]")
         if killed_webui:
             console.print(f"  [green]Stopped Open WebUI[/]")
-        if not result["ollama_unloaded"] and not result["processes_killed"] and not killed_img and not killed_webui:
+        if (
+            not result["ollama_unloaded"]
+            and not result["processes_killed"]
+            and not killed_img
+            and not killed_webui
+        ):
             console.print("  [dim]Nothing to clean up.[/]")
         console.print()
         print_machine_specs()
@@ -578,7 +612,7 @@ tool integration:
         return
 
     # ── Serve / Run ──
-    if args.serve:
+    if args.serve and not args.launch:
         if args.cloud:
             from localfit.cloud import cloud_serve
 
@@ -636,9 +670,18 @@ tool integration:
                 budget = float(args.budget.replace("h", ""))
                 cloud_serve(args.serve, budget_hours=budget)
                 return
+            elif provider == "modal":
+                from localfit.cloud import modal_serve
+
+                result = modal_serve(
+                    args.serve, tool=args.launch if hasattr(args, "launch") else None
+                )
+                return
             else:
                 console.print(f"  [red]Unknown remote provider: {provider}[/]")
-                console.print(f"  [dim]Supported: kaggle (free T4), runpod (paid)[/]")
+                console.print(
+                    f"  [dim]Supported: kaggle (free T4), runpod (paid), modal (serverless)[/]"
+                )
                 return
         # Use wizard — shows run menu (MLX/GGUF/Remote), serves, then tool picker
         from localfit.wizard import run_wizard
@@ -656,7 +699,43 @@ tool integration:
         )
         return
 
+    # ── External API (--api) — connect to any OpenAI-compatible endpoint ──
+    if getattr(args, "api", None) and args.launch:
+        api_url = args.api.rstrip("/")
+        api_key = getattr(args, "key", None) or os.environ.get("OPENAI_API_KEY", "")
+        model = args.model or "default"
+        image_model = getattr(args, "img", None)
+
+        console.print(f"\n  [bold #e07a5f]localfit → external API[/]")
+        console.print(f"  API:   [cyan]{api_url}[/]")
+        console.print(f"  Model: [bold]{model}[/]")
+
+        if api_key:
+            os.environ["OPENAI_API_KEY"] = api_key
+        else:
+            console.print(f"  [yellow]No API key — set --key or OPENAI_API_KEY[/]")
+
+        # Test connection
+        try:
+            import urllib.request
+            req = urllib.request.Request(
+                f"{api_url}/models",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                import json as _japi
+                models = _japi.loads(resp.read()).get("data", [])
+                console.print(f"  [green]✓[/] Connected ({len(models)} models)")
+        except Exception as e:
+            console.print(f"  [yellow]Connection: {e}[/]")
+            console.print(f"  [dim]Continuing anyway...[/]")
+
+        os.environ["OPENAI_API_BASE"] = api_url
+        _launch_tool_with_endpoint(args.launch, api_url, model, image_model=image_model)
+        return
+
     # ── Launch tool (serve model + launch tool in one command) ──
+    # Must be checked BEFORE --serve so --serve --launch works
     if args.launch:
         model = args.model or args.serve
         provider = getattr(args, "remote", None)
@@ -2962,7 +3041,11 @@ def _launch_tool_with_endpoint(
         env = os.environ.copy()
         env["LOCALFIT_API_BASE"] = api_base
         env["LOCALFIT_MODEL"] = model_name
+        # Pass auth key for remote APIs (Modal, etc.)
+        if os.environ.get("OPENAI_API_KEY"):
+            env["OPENAI_API_KEY"] = os.environ["OPENAI_API_KEY"]
         console.print(f"  [green]Launching localcoder → {api_base}[/]")
+        console.print(f"  [dim]Model: {model_name}[/]")
         os.execvpe(lc_bin, [lc_bin, "--api", api_base, "-m", model_name], env)
 
     elif tool in ("webui", "open-webui", "openwebui", "chat"):
