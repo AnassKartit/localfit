@@ -441,7 +441,29 @@ tool integration:
         if result["processes_killed"]:
             for p in result["processes_killed"]:
                 console.print(f"  [green]Killed PID {p['pid']}[/]")
-        if not result["ollama_unloaded"] and not result["processes_killed"]:
+
+        # Kill image server if running
+        import subprocess as _sp_cleanup
+        killed_img = False
+        try:
+            _sp_cleanup.run(["pkill", "-f", "localfit.image_server"], capture_output=True, timeout=5)
+            killed_img = True
+        except Exception:
+            pass
+
+        # Kill Open WebUI if running
+        killed_webui = False
+        try:
+            _sp_cleanup.run(["pkill", "-f", "open-webui"], capture_output=True, timeout=5)
+            killed_webui = True
+        except Exception:
+            pass
+
+        if killed_img:
+            console.print(f"  [green]Stopped image server[/]")
+        if killed_webui:
+            console.print(f"  [green]Stopped Open WebUI[/]")
+        if not result["ollama_unloaded"] and not result["processes_killed"] and not killed_img and not killed_webui:
             console.print("  [dim]Nothing to clean up.[/]")
         console.print()
         print_machine_specs()
