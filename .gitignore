@@ -14,3 +14,5 @@ albert_einstein.png
 *.png
 .localcoder-*
 opencode.json
+.aider*
+index.html
