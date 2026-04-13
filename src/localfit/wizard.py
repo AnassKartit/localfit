@@ -10,6 +10,107 @@ from rich.console import Console
 console = Console(highlight=False)
 
 
+def _pick(title, options, header="", subtitle="↑↓ move · Enter select · q cancel"):
+    """Arrow-key picker with optional header. options = list of (label, description, value).
+    Returns value or None if cancelled."""
+    import tty, termios
+
+    sel = 0
+    old = termios.tcgetattr(sys.stdin)
+    try:
+        tty.setraw(sys.stdin.fileno())
+        while True:
+            sys.stdout.write("\033[H\033[J")  # clear
+            if header:
+                sys.stdout.write(f"\r\n{header}\r\n")
+            sys.stdout.write(f"\r\n  \033[1m{title}\033[0m\r\n\r\n")
+            for i, (label, desc, _) in enumerate(options):
+                if i == sel:
+                    sys.stdout.write(f"  \033[32m> {label}\033[0m\r\n")
+                    if desc:
+                        sys.stdout.write(f"    \033[2m{desc}\033[0m\r\n")
+                else:
+                    sys.stdout.write(f"    \033[2m{label}\033[0m\r\n")
+            sys.stdout.write(f"\r\n  \033[2m{subtitle}\033[0m")
+            sys.stdout.flush()
+
+            ch = sys.stdin.read(1)
+            if ch == "\r" or ch == "\n":
+                return options[sel][2]
+            elif ch == "q":
+                return None
+            elif ch == "\x1b":
+                sys.stdin.read(1)
+                arrow = sys.stdin.read(1)
+                if arrow == "A":
+                    sel = (sel - 1) % len(options)
+                elif arrow == "B":
+                    sel = (sel + 1) % len(options)
+            elif ch.isdigit():
+                idx = int(ch) - 1
+                if 0 <= idx < len(options):
+                    return options[idx][2]
+    except (EOFError, KeyboardInterrupt):
+        return None
+    finally:
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old)
+
+
+def _build_header(specs, swap_mb):
+    """Build a compact dashboard header for all wizard screens."""
+    chip = specs.get("chip", "GPU")
+    gpu_gb = round(specs.get("gpu_total_mb", 0) / 1024, 1)
+    ram_gb = specs.get("ram_gb", 0)
+    usable_gb = round(gpu_gb - 2, 1)
+
+    # Swap color
+    if swap_mb > 8000:
+        swap = f"\033[31m{swap_mb // 1024}GB swap CRITICAL\033[0m"
+    elif swap_mb > 2000:
+        swap = f"\033[33m{swap_mb // 1024}GB swap\033[0m"
+    else:
+        swap = f"\033[32m{swap_mb // 1024}GB swap\033[0m"
+
+    # Disk
+    disk_free = "?"
+    try:
+        st = os.statvfs(os.path.expanduser("~"))
+        disk_free = f"{round((st.f_bavail * st.f_frsize) / (1024**3))}GB free"
+    except Exception:
+        pass
+
+    # Running models
+    import urllib.request as _ur
+
+    running_lines = []
+    for _port, _be in [(8089, "llama.cpp"), (11434, "Ollama")]:
+        try:
+            _r = _ur.urlopen(f"http://127.0.0.1:{_port}/v1/models", timeout=1)
+            _d = json.loads(_r.read())
+            for _m in _d.get("data", []):
+                running_lines.append(f"  \033[32m●\033[0m {_m['id']} ({_be} :{_port})")
+        except Exception:
+            pass
+    try:
+        _r = _ur.urlopen("http://127.0.0.1:8189/health", timeout=1)
+        _d = json.loads(_r.read())
+        if _d.get("status") == "ok" and _d.get("model", "not loaded") != "not loaded":
+            running_lines.append(f"  \033[36m●\033[0m {_d['model']} (image :8189)")
+    except Exception:
+        pass
+
+    lines = []
+    lines.append(
+        f"  \033[1mlocalfit\033[0m  {chip} · \033[1m{gpu_gb}GB\033[0m GPU ({usable_gb}GB usable) · {ram_gb}GB RAM · {swap} · {disk_free}"
+    )
+    if running_lines:
+        lines.append("")
+        lines.append("  \033[1mRunning:\033[0m")
+        lines.extend(running_lines)
+
+    return "\r\n".join(lines)
+
+
 def run_wizard(model=None, backend=None, budget=None, tool=None, tunnel=False):
     """
     The single entry point for all localfit flows.
@@ -21,13 +122,275 @@ def run_wizard(model=None, backend=None, budget=None, tool=None, tunnel=False):
     localfit launch openwebui --model gemma4:e4b --remote kaggle --budget 1h
                                       → everything filled, zero menus
     """
-    from localfit.home_menu import show_home_menu
-    from localfit.backends import get_machine_specs, IS_MAC, check_mlx_available
+    from localfit.backends import (
+        get_machine_specs,
+        IS_MAC,
+        get_metal_gpu_stats,
+        get_swap_usage_mb,
+    )
 
     specs = get_machine_specs()
     gpu_total_mb = specs.get("gpu_total_mb", 0)
     gpu_gb = round(gpu_total_mb / 1024, 1)
     chip = specs.get("chip", "GPU")
+    swap_mb = get_swap_usage_mb()
+
+    # ── Build dashboard header for all steps ──
+    header = _build_header(specs, swap_mb)
+
+    # ── Step 1: What do you want? ──
+    if not model:
+        # Check what's already running
+        _running = []
+        import urllib.request as _ur
+
+        for _port, _backend in [(8089, "llama.cpp"), (11434, "Ollama")]:
+            try:
+                _r = _ur.urlopen(f"http://127.0.0.1:{_port}/v1/models", timeout=1)
+                _d = json.loads(_r.read())
+                for _m in _d.get("data", []):
+                    _running.append((_m["id"], _backend, _port))
+            except Exception:
+                pass
+        _img_running = None
+        try:
+            _r = _ur.urlopen("http://127.0.0.1:8189/health", timeout=1)
+            _d = json.loads(_r.read())
+            if (
+                _d.get("status") == "ok"
+                and _d.get("model", "not loaded") != "not loaded"
+            ):
+                _img_running = _d["model"]
+        except Exception:
+            pass
+
+        _step1 = []
+        if _running:
+            for _mid, _be, _port in _running:
+                _step1.append(
+                    (
+                        f"Use {_mid} ({_be} :{_port})",
+                        "Already running — connect a tool",
+                        ("use_running", _mid, _be, _port),
+                    )
+                )
+        _step1.append(
+            (
+                "Run an LLM",
+                "Chat, code, agents — pick a model for your GPU",
+                ("pick_llm",),
+            )
+        )
+        _step1.append(
+            (
+                "Run an Image model",
+                f"Generate images locally{' — ' + _img_running + ' running' if _img_running else ''}",
+                ("pick_image",),
+            )
+        )
+        _step1.append(
+            (
+                "Run Both (LLM + Image)",
+                "Full local AI stack",
+                ("pick_both",),
+            )
+        )
+        if swap_mb > 2000:
+            _step1.append(
+                (
+                    f"Cleanup ({swap_mb // 1024}GB swap, free memory)",
+                    "Unload models, clear cache, fix swap",
+                    ("cleanup",),
+                )
+            )
+        _step1.append(
+            (
+                "Advanced menu...",
+                "Full dashboard with all options",
+                ("advanced",),
+            )
+        )
+
+        choice = _pick("What do you want to do?", _step1, header=header)
+        if not choice:
+            return None
+
+        if choice[0] == "use_running":
+            _, _mid, _be, _port = choice
+            return _pick_tool_and_launch(
+                _mid, f"http://127.0.0.1:{_port}/v1", specs, header
+            )
+
+        if choice[0] == "cleanup":
+            return "cleanup"
+
+        if choice[0] == "advanced":
+            return "advanced"
+
+        if choice[0] in ("pick_llm", "pick_both"):
+            model = _pick_llm_model(specs, gpu_gb, chip, header)
+            if not model:
+                return None
+
+        if choice[0] == "pick_image":
+            return _pick_and_start_image(specs, gpu_gb, header)
+
+        if choice[0] == "pick_both":
+            _pick_and_start_image(specs, gpu_gb, header)
+
+    # ── Step 2: Where to run? ──
+    from localfit.run_menu import collect_options
+
+    local_opts, remote_opts, recommended, metadata = collect_options(model, specs)
+
+    fits = [o for o in local_opts if o.get("fits")]
+    _where_opts = []
+    if fits:
+        best = fits[-1]
+        _where_opts.append(
+            (
+                f"Local ({best['size']}, {best['backend']})",
+                f"Runs on your {chip} — fastest",
+                ("local", best),
+            )
+        )
+    _where_opts.append(
+        (
+            "Kaggle (free, T4 GPU)",
+            "Free 30h/week, no credit card",
+            ("kaggle", None),
+        )
+    )
+    try:
+        from localfit.cloud import get_runpod_key
+
+        if get_runpod_key():
+            _where_opts.append(
+                (
+                    "RunPod (paid, any GPU)",
+                    "Auto-stop, pay per minute",
+                    ("runpod", None),
+                )
+            )
+    except Exception:
+        pass
+
+    if len(_where_opts) == 1:
+        where = _where_opts[0][2]
+    else:
+        where = _pick(f"Where to run {model}?", _where_opts)
+    if not where:
+        return None
+
+    if where[0] == "local":
+        return _serve_and_pick_tool(model, where[1], tool, specs)
+    elif where[0] in ("kaggle", "runpod"):
+        return _remote_serve_and_pick_tool(model, where[0], budget, tool, specs)
+
+    return None
+
+
+def _pick_llm_model(specs, gpu_gb, chip):
+    """Step 2a: Pick an LLM model based on hardware."""
+    from localfit.backends import MODELS, recommend_model
+
+    best_id, best_reason = recommend_model(int(gpu_gb))
+    usable = gpu_gb - 2  # reserve 2GB for system
+
+    options = []
+    # Recommended first
+    if best_id in MODELS:
+        m = MODELS[best_id]
+        options.append(
+            (
+                f"★ {m['name']} (recommended)",
+                f"{best_reason}",
+                best_id,
+            )
+        )
+
+    # Other models that fit
+    for mid, m in MODELS.items():
+        if mid == best_id:
+            continue
+        size = m.get("size_gb", 99)
+        if size <= usable:
+            options.append(
+                (
+                    f"{m['name']} (~{size}GB)",
+                    m.get("description", ""),
+                    mid,
+                )
+            )
+
+    # Search option
+    options.append(
+        (
+            "Search HuggingFace...",
+            "Find any model by name",
+            "__search__",
+        )
+    )
+
+    choice = _pick(f"Pick an LLM ({chip}, {gpu_gb}GB GPU)", options)
+    if choice == "__search__":
+        os.system("clear")
+        try:
+            term = input("\n  Search model: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return None
+        return term if term else None
+    return choice
+
+
+def _pick_and_start_image(specs, gpu_gb):
+    """Pick and start an image model."""
+    from localfit.image_models import IMAGE_MODELS
+
+    options = []
+    for k, v in IMAGE_MODELS.items():
+        vram = v.get("vram_gb", 0)
+        if vram <= gpu_gb:
+            options.append(
+                (
+                    f"{k} ({vram}GB)",
+                    f"{v['pipeline']} · {v['task']}",
+                    k,
+                )
+            )
+
+    choice = _pick("Pick an image model", options)
+    if not choice:
+        return None
+
+    os.system("clear")
+    console.print(f"\n  [cyan]Starting {choice}...[/]")
+    from localfit.cli import _start_image_server
+
+    _start_image_server(choice)
+    return "image_started"
+
+
+def _pick_tool_and_launch(model_name, api_base, specs):
+    """Pick a tool to connect to a running model."""
+    options = [
+        ("Open WebUI (chat in browser)", "Best for chatting", "webui"),
+        ("localcoder (AI coding agent)", "Write code from terminal", "localcoder"),
+        ("Claude Code (via proxy)", "Use Claude Code with local model", "claude"),
+        ("OpenCode", "CLI coding assistant", "opencode"),
+        ("Aider", "AI pair programming", "aider"),
+        ("Just serve (no tool)", "API on " + api_base, "none"),
+    ]
+
+    choice = _pick(f"Connect {model_name} to:", options)
+    if not choice or choice == "none":
+        console.print(f"\n  [green]✓ API ready:[/] {api_base}")
+        return "served"
+
+    from localfit.cli import _launch_tool_with_endpoint
+
+    _launch_tool_with_endpoint(choice, api_base, model_name)
+    return "launched"
 
     # ── Step 1: Model ──
     # If model provided, skip. Otherwise show model picker.
@@ -38,6 +401,7 @@ def run_wizard(model=None, backend=None, budget=None, tool=None, tunnel=False):
     # ── Step 2: Backend (local vs remote) ──
     # Check what options exist for this model
     from localfit.run_menu import collect_options
+
     local_opts, remote_opts, recommended, metadata = collect_options(model, specs)
 
     all_opts = local_opts + remote_opts
@@ -58,7 +422,9 @@ def run_wizard(model=None, backend=None, budget=None, tool=None, tunnel=False):
     if fits and not backend and not tool:
         # Show the run menu to let user pick quant
         best = fits[-1]  # highest quality that fits
-        console.print(f"\n  [green]✓ Best for your {chip}:[/] [bold]{best['backend']} {best['name'].split('/')[-1]}[/] ({best['size']})")
+        console.print(
+            f"\n  [green]✓ Best for your {chip}:[/] [bold]{best['backend']} {best['name'].split('/')[-1]}[/] ({best['size']})"
+        )
         if len(fits) > 1:
             console.print(f"  [dim]{len(fits)} options fit your {gpu_gb}GB GPU[/]")
 
@@ -70,13 +436,18 @@ def run_wizard(model=None, backend=None, budget=None, tool=None, tunnel=False):
     if not backend:
         # Show run menu (same as localfit run MODEL)
         from localfit.run_menu import show_run_menu
+
         hw_label = f"{chip}  {gpu_gb}GB"
 
         choice = show_run_menu(model, hw_label, local_opts, remote_opts, recommended)
         if not choice or choice == "quit" or choice == "back":
             return None
 
-        opt = all_opts[int(choice) - 1] if isinstance(choice, int) and 1 <= choice <= len(all_opts) else None
+        opt = (
+            all_opts[int(choice) - 1]
+            if isinstance(choice, int) and 1 <= choice <= len(all_opts)
+            else None
+        )
         if not opt:
             return None
 
@@ -111,10 +482,12 @@ def _auto_serve(model, backend, budget, tool, specs):
             duration = 60
 
         from localfit.remote import remote_serve_kaggle
+
         remote_serve_kaggle(model, max_runtime_minutes=duration)
 
     elif backend in ("runpod", "cloud"):
         from localfit.cloud import cloud_serve
+
         cloud_serve(model)
 
     # After serve, launch tool if specified
@@ -128,6 +501,7 @@ def _serve_and_pick_tool(model, opt, tool, specs):
 
     if action == "mlx":
         from localfit.backends import start_mlx_server, stop_conflicting_backends
+
         stop_conflicting_backends("mlx")
         proc = start_mlx_server(opt["repo"], port=8080)
         if not proc:
@@ -149,23 +523,48 @@ def _serve_and_pick_tool(model, opt, tool, specs):
             return None
 
         # Friendly model alias (e.g. "gemma4:e4b" instead of "gemma-4-E4B-it-UD-Q8_K_XL.gguf")
-        friendly_name = model.replace("-", " ").replace("_", " ") if model else opt.get("quant", "local")
+        friendly_name = (
+            model.replace("-", " ").replace("_", " ")
+            if model
+            else opt.get("quant", "local")
+        )
         ngl = "99"
         ctx = "32768"
-        cmd = [binary, "-m", path, "--port", "8089", "-ngl", ngl, "-c", ctx, "--jinja", "--alias", friendly_name]
-        if opt.get("hf_data", {}).get("is_vlm") and opt.get("hf_data", {}).get("mmproj_files"):
+        cmd = [
+            binary,
+            "-m",
+            path,
+            "--port",
+            "8089",
+            "-ngl",
+            ngl,
+            "-c",
+            ctx,
+            "--jinja",
+            "--alias",
+            friendly_name,
+        ]
+        if opt.get("hf_data", {}).get("is_vlm") and opt.get("hf_data", {}).get(
+            "mmproj_files"
+        ):
             mmproj = opt["hf_data"]["mmproj_files"][0]["filename"]
             mmproj_path = _download_gguf(opt["repo"], mmproj)
             if mmproj_path:
                 cmd += ["--mmproj", mmproj_path]
 
         import tempfile
-        stderr_log = tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False, prefix="llama-")
+
+        stderr_log = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".log", delete=False, prefix="llama-"
+        )
         env = os.environ.copy()
-        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=stderr_log, env=env)
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.DEVNULL, stderr=stderr_log, env=env
+        )
 
         # Wait for server
         import urllib.request
+
         for i in range(60):
             try:
                 urllib.request.urlopen("http://127.0.0.1:8089/health", timeout=1)
@@ -209,10 +608,12 @@ def _remote_serve_and_pick_tool(model, backend, budget, tool, specs):
             duration = 60
 
         from localfit.remote import remote_serve_kaggle
+
         remote_serve_kaggle(model, max_runtime_minutes=duration)
 
     elif backend in ("runpod", "cloud"):
         from localfit.cloud import cloud_serve
+
         cloud_serve(model)
 
     if tool:
@@ -267,7 +668,11 @@ def _show_tool_menu(api_model, port=8089):
     ]
 
     actions = [
-        ("Image Gen (Flux)", "start_image", "Start Flux 2 Klein 4B for image generation"),
+        (
+            "Image Gen (Flux)",
+            "start_image",
+            "Start Flux 2 Klein 4B for image generation",
+        ),
         ("Quantize → HF", "quantize", "Create GGUF quant + upload to HuggingFace"),
         ("Convert to MLX", "convert_mlx", "Create MLX version for Apple Silicon"),
         ("Make it fit", "makeitfit", "Too big? Quantize remotely on Kaggle/RunPod"),
@@ -278,30 +683,55 @@ def _show_tool_menu(api_model, port=8089):
 
     items = [
         {
-            "index": 1, "section": "ACTIVE", "label": api_model,
-            "meta": "local", "detail": f"Serving on :{port} · {api_url}",
-            "repo": f"local:{port}", "source": "local", "accent": "green",
-            "badge": "●", "action": "noop", "selectable": False,
+            "index": 1,
+            "section": "ACTIVE",
+            "label": api_model,
+            "meta": "local",
+            "detail": f"Serving on :{port} · {api_url}",
+            "repo": f"local:{port}",
+            "source": "local",
+            "accent": "green",
+            "badge": "●",
+            "action": "noop",
+            "selectable": False,
         },
     ]
 
     idx = 2
     for name, tool_id, desc in tools:
-        items.append({
-            "index": idx, "section": "TOOLS", "label": name,
-            "meta": "", "detail": desc,
-            "repo": tool_id, "source": "", "accent": "cyan",
-            "badge": "→", "action": "launch_tool", "selectable": True,
-        })
+        items.append(
+            {
+                "index": idx,
+                "section": "TOOLS",
+                "label": name,
+                "meta": "",
+                "detail": desc,
+                "repo": tool_id,
+                "source": "",
+                "accent": "cyan",
+                "badge": "→",
+                "action": "launch_tool",
+                "selectable": True,
+            }
+        )
         idx += 1
 
     for name, action_id, desc in actions:
-        items.append({
-            "index": idx, "section": "ACTIONS", "label": name,
-            "meta": "", "detail": desc,
-            "repo": action_id, "source": "", "accent": "yellow",
-            "badge": "⚙", "action": action_id, "selectable": True,
-        })
+        items.append(
+            {
+                "index": idx,
+                "section": "ACTIONS",
+                "label": name,
+                "meta": "",
+                "detail": desc,
+                "repo": action_id,
+                "source": "",
+                "accent": "yellow",
+                "badge": "⚙",
+                "action": action_id,
+                "selectable": True,
+            }
+        )
         idx += 1
 
     os.system("clear")
@@ -316,35 +746,52 @@ def _show_tool_menu(api_model, port=8089):
                 # Stay on menu — user can launch more tools
         elif result.get("action") == "start_image":
             import subprocess as _sp
+
             console.print(f"\n  [bold]Starting Flux 2 Klein 4B image server...[/]")
             console.print(f"  [dim]First run downloads ~2GB model[/]")
             _sp.Popen(
-                [sys.executable, "-m", "localfit.image_server", "8189", "flux2-klein-4b"],
-                stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+                [
+                    sys.executable,
+                    "-m",
+                    "localfit.image_server",
+                    "8189",
+                    "flux2-klein-4b",
+                ],
+                stdout=_sp.DEVNULL,
+                stderr=_sp.DEVNULL,
             )
             time.sleep(2)
-            console.print(f"  [green]✓ Image API: http://127.0.0.1:8189/v1/images/generations[/]")
-            console.print(f"  [dim]Configure in Open WebUI: Settings → Images → URL: http://127.0.0.1:8189[/]")
+            console.print(
+                f"  [green]✓ Image API: http://127.0.0.1:8189/v1/images/generations[/]"
+            )
+            console.print(
+                f"  [dim]Configure in Open WebUI: Settings → Images → URL: http://127.0.0.1:8189[/]"
+            )
         elif result.get("action") == "quantize":
             from localfit.makeitfit import cmd_makeitfit
+
             os.system("clear")
             cmd_makeitfit(api_model)
         elif result.get("action") == "convert_mlx":
             from localfit.backends import convert_to_mlx
+
             os.system("clear")
             convert_to_mlx(api_model, q_bits=4)
         elif result.get("action") == "makeitfit":
             from localfit.makeitfit import cmd_makeitfit
+
             os.system("clear")
             cmd_makeitfit(api_model)
         elif result.get("action") == "stop_model":
             import subprocess
+
             subprocess.run(["pkill", "-f", "llama-server"], timeout=5)
             subprocess.run(["pkill", "-f", "mlx_lm"], timeout=5)
             console.print(f"  [yellow]Model stopped. GPU freed.[/]")
             return "stopped"
         elif result.get("action") == "switch_model":
             import subprocess
+
             subprocess.run(["pkill", "-f", "llama-server"], timeout=5)
             subprocess.run(["pkill", "-f", "mlx_lm"], timeout=5)
             return "switch"
@@ -366,6 +813,7 @@ def _launch_tool_direct(tool, model, port=8089):
 
     if tool in ("webui", "openwebui", "open-webui", "chat"):
         import webbrowser
+
         webui_dir = os.path.expanduser("~/.localfit/open-webui")
         os.makedirs(webui_dir, exist_ok=True)
         env["DATA_DIR"] = webui_dir
@@ -378,14 +826,33 @@ def _launch_tool_direct(tool, model, port=8089):
 
         try:
             subprocess.Popen(
-                ["uv", "run", "--python", "3.11", "--with", "open-webui", "--", "open-webui", "serve"],
-                env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                [
+                    "uv",
+                    "run",
+                    "--python",
+                    "3.11",
+                    "--with",
+                    "open-webui",
+                    "--",
+                    "open-webui",
+                    "serve",
+                ],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
         except FileNotFoundError:
             try:
-                subprocess.Popen(["open-webui", "serve"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.Popen(
+                    ["open-webui", "serve"],
+                    env=env,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
             except FileNotFoundError:
-                console.print(f"  [red]Open WebUI not installed: pip install open-webui[/]")
+                console.print(
+                    f"  [red]Open WebUI not installed: pip install open-webui[/]"
+                )
                 return
         console.print(f"  [green]✓[/] Open WebUI → http://localhost:8080")
         time.sleep(3)
@@ -395,9 +862,17 @@ def _launch_tool_direct(tool, model, port=8089):
         try:
             from localfit.proxy import PROXY_PORT, ensure_proxy_process
             from localfit.safe_config import get_claude_launch_env
-            ensure_proxy_process(llama_url=f"{api_base}/chat/completions", port=PROXY_PORT)
-            subprocess.Popen(["claude", "--bare", "--model", model or "local"],
-                env={**os.environ, **get_claude_launch_env(api_base=f"http://127.0.0.1:{PROXY_PORT}")})
+
+            ensure_proxy_process(
+                llama_url=f"{api_base}/chat/completions", port=PROXY_PORT
+            )
+            subprocess.Popen(
+                ["claude", "--bare", "--model", model or "local"],
+                env={
+                    **os.environ,
+                    **get_claude_launch_env(api_base=f"http://127.0.0.1:{PROXY_PORT}"),
+                },
+            )
         except Exception as e:
             console.print(f"  [red]{e}[/]")
 
@@ -405,8 +880,18 @@ def _launch_tool_direct(tool, model, port=8089):
         subprocess.Popen(["opencode"], env=env)
 
     elif tool in ("codex",):
-        subprocess.Popen(["codex", "--model", model or "local", "-c", "model_provider=openai",
-            "-c", "features.use_responses_api=false"], env=env)
+        subprocess.Popen(
+            [
+                "codex",
+                "--model",
+                model or "local",
+                "-c",
+                "model_provider=openai",
+                "-c",
+                "features.use_responses_api=false",
+            ],
+            env=env,
+        )
 
     elif tool in ("aider",):
         env["OPENAI_API_BASE"] = api_base

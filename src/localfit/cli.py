@@ -319,10 +319,14 @@ tool integration:
         if service == "runpod":
             from localfit.cloud import save_runpod_key
 
-            console.print(f"\n  [bold]RunPod — cloud GPUs for serving & quantization[/]\n")
+            console.print(
+                f"\n  [bold]RunPod — cloud GPUs for serving & quantization[/]\n"
+            )
             console.print(f"  New to RunPod? Create an account:")
             console.print(f"  [cyan]https://runpod.io?ref=901ol203[/]")
-            console.print(f"  [dim]Referral helps fund localfit development · same price for you[/]\n")
+            console.print(
+                f"  [dim]Referral helps fund localfit development · same price for you[/]\n"
+            )
             console.print(f"  Already have an account? Get your API key at:")
             console.print(f"  [cyan]https://www.runpod.io/console/user/settings[/]\n")
             try:
@@ -472,6 +476,7 @@ tool integration:
     # ── Make it fit ──
     if args.makeitfit:
         from localfit.makeitfit import cmd_makeitfit
+
         cmd_makeitfit(args.makeitfit)
         return
 
@@ -565,16 +570,34 @@ tool integration:
             if getattr(args, "img", None):
                 img_model = args.img
                 from localfit.image_models import resolve_image_model
+
                 img_info = resolve_image_model(img_model)
                 if img_info:
-                    console.print(f"\n  [bold]Image model:[/] {img_info['repo']} ({img_info['pipeline']})")
+                    console.print(
+                        f"\n  [bold]Image model:[/] {img_info['repo']} ({img_info['pipeline']})"
+                    )
                 if provider == "kaggle":
-                    from localfit.remote import _generate_notebook_image, _push_kaggle_kernel, KAGGLE_GPUS
+                    from localfit.remote import (
+                        _generate_notebook_image,
+                        _push_kaggle_kernel,
+                        KAGGLE_GPUS,
+                    )
+
                     t4 = KAGGLE_GPUS[0]
-                    hf_repo = img_info["repo"] if img_info else f"black-forest-labs/FLUX.2-klein-4B"
-                    script = _generate_notebook_image(img_model, t4, max_runtime_minutes=getattr(args, "duration", None) or 15)
+                    hf_repo = (
+                        img_info["repo"]
+                        if img_info
+                        else f"black-forest-labs/FLUX.2-klein-4B"
+                    )
+                    script = _generate_notebook_image(
+                        img_model,
+                        t4,
+                        max_runtime_minutes=getattr(args, "duration", None) or 15,
+                    )
                     console.print(f"  [dim]Pushing image notebook to Kaggle...[/]")
-                    ref = _push_kaggle_kernel(script, f"img-{img_model[:20]}", t4["accelerator"])
+                    ref = _push_kaggle_kernel(
+                        script, f"img-{img_model[:20]}", t4["accelerator"]
+                    )
                     if ref:
                         console.print(f"  [green]✓[/] Image notebook pushed: {ref}")
                         console.print(f"  [dim]Polling ntfy for tunnel URL...[/]")
@@ -597,6 +620,7 @@ tool integration:
                 return
         # Use wizard — shows run menu (MLX/GGUF/Remote), serves, then tool picker
         from localfit.wizard import run_wizard
+
         _show_logo_intro()
         run_wizard(model=args.serve, tool=args.launch)
         return
@@ -605,7 +629,9 @@ tool integration:
     if args.remote and not args.serve and not args.launch:
         console.print(f"\n  [red]--remote requires a model.[/]")
         console.print(f"  [dim]Usage: localfit run MODEL --remote kaggle[/]")
-        console.print(f"  [dim]   or: localfit launch openwebui --model MODEL --remote kaggle[/]\n")
+        console.print(
+            f"  [dim]   or: localfit launch openwebui --model MODEL --remote kaggle[/]\n"
+        )
         return
 
     # ── Launch tool (serve model + launch tool in one command) ──
@@ -617,23 +643,33 @@ tool integration:
         if provider:
             if not model:
                 console.print(f"\n  [red]--remote requires a model.[/]")
-                console.print(f"  Usage: [cyan]localfit launch {args.launch} --model gemma4:e4b --remote kaggle[/]\n")
+                console.print(
+                    f"  Usage: [cyan]localfit launch {args.launch} --model gemma4:e4b --remote kaggle[/]\n"
+                )
                 return
 
             # Show budget info
             if provider == "kaggle":
                 from localfit.remote import _get_quota_usage, KAGGLE_WEEKLY_QUOTA_HOURS
+
                 quota = _get_quota_usage()
                 remaining_h = max(0, KAGGLE_WEEKLY_QUOTA_HOURS - quota["used_hours"])
-                console.print(f"\n  [bold]Kaggle GPU quota:[/] {remaining_h:.0f}h remaining (of {KAGGLE_WEEKLY_QUOTA_HOURS}h/week)")
-                console.print(f"  [dim]Note: tracked locally — check kaggle.com/settings for exact quota[/]")
+                console.print(
+                    f"\n  [bold]Kaggle GPU quota:[/] {remaining_h:.0f}h remaining (of {KAGGLE_WEEKLY_QUOTA_HOURS}h/week)"
+                )
+                console.print(
+                    f"  [dim]Note: tracked locally — check kaggle.com/settings for exact quota[/]"
+                )
             elif provider == "runpod":
                 try:
                     from localfit.cloud import get_runpod_key, _runpod_api
+
                     rk = get_runpod_key()
                     if rk:
-                        r = _runpod_api('{ myself { clientBalance } }', rk)
-                        balance = r.get("data", {}).get("myself", {}).get("clientBalance", 0)
+                        r = _runpod_api("{ myself { clientBalance } }", rk)
+                        balance = (
+                            r.get("data", {}).get("myself", {}).get("clientBalance", 0)
+                        )
                         console.print(f"\n  [bold]RunPod balance:[/] ${balance:.2f}")
                 except Exception:
                     pass
@@ -646,12 +682,15 @@ tool integration:
                     # Money → calculate time on cheapest GPU
                     try:
                         from localfit.cloud import get_runpod_key, fetch_gpu_options
+
                         rk = get_runpod_key()
                         gpus = fetch_gpu_options(rk) if rk else []
                         if gpus:
                             cheapest = gpus[0]["price"]
                             duration = int(float(budget.strip("$")) / cheapest * 60)
-                            console.print(f"  ${budget.strip('$')} ≈ {duration}min on {gpus[0]['name']} (${cheapest}/hr)")
+                            console.print(
+                                f"  ${budget.strip('$')} ≈ {duration}min on {gpus[0]['name']} (${cheapest}/hr)"
+                            )
                     except Exception:
                         duration = 60
                 else:
@@ -671,14 +710,20 @@ tool integration:
 
             if provider == "kaggle":
                 from localfit.remote import remote_serve_kaggle
+
                 endpoint = remote_serve_kaggle(model, max_runtime_minutes=duration)
                 if endpoint and args.launch:
-                    _launch_tool_with_endpoint(args.launch, f"{endpoint}/v1", model, image_model=image_model)
+                    _launch_tool_with_endpoint(
+                        args.launch, f"{endpoint}/v1", model, image_model=image_model
+                    )
             elif provider in ("runpod", "cloud"):
                 from localfit.cloud import cloud_serve
+
                 endpoint = cloud_serve(model)
                 if endpoint and args.launch:
-                    _launch_tool_with_endpoint(args.launch, f"{endpoint}/v1", model, image_model=image_model)
+                    _launch_tool_with_endpoint(
+                        args.launch, f"{endpoint}/v1", model, image_model=image_model
+                    )
             return
 
         # Local launch: serve locally + launch tool
@@ -703,7 +748,12 @@ tool integration:
                 if not cc["found"]:
                     return
 
-        _launch_tool(args.launch, model, tunnel=args.tunnel)
+        _launch_tool(
+            args.launch,
+            model,
+            tunnel=args.tunnel,
+            image_model=getattr(args, "img", None),
+        )
         return
 
     # ── Config tool ──
@@ -711,9 +761,14 @@ tool integration:
         _config_tool(args.config)
         return
 
-    # ── Default: animated logo → dashboard ──
+    # ── Default: wizard flow (simple) or --advanced (full menu) ──
     _show_logo_intro()
-    _boot_screen()
+    if getattr(args, "advanced", False):
+        _boot_screen()
+    else:
+        from localfit.dashboard import run_dashboard
+
+        run_dashboard()
 
 
 def _boot_caps_text(caps):
@@ -770,9 +825,21 @@ def _show_logo_intro():
     from rich.live import Live
 
     gradient = [
-        "#00ffff", "#00e5ff", "#00ccff", "#00b3ff", "#0099ff",
-        "#0080ff", "#0066ff", "#1a4dff", "#3333ff", "#4d1aff",
-        "#6600ff", "#8000ff", "#9900ff", "#b300ff", "#cc00ff",
+        "#00ffff",
+        "#00e5ff",
+        "#00ccff",
+        "#00b3ff",
+        "#0099ff",
+        "#0080ff",
+        "#0066ff",
+        "#1a4dff",
+        "#3333ff",
+        "#4d1aff",
+        "#6600ff",
+        "#8000ff",
+        "#9900ff",
+        "#b300ff",
+        "#cc00ff",
     ]
 
     try:
@@ -815,21 +882,37 @@ def _show_logo_intro():
                         else:
                             text.append(ch, style="grey23")
                     text.append("\n")
-                text.append("\n          GPU toolkit for local LLMs\n", style="dim italic")
+                text.append(
+                    "\n          GPU toolkit for local LLMs\n", style="dim italic"
+                )
                 live.update(Align.center(text))
                 time.sleep(0.012)
 
             # Phase 2: glow pulse — breathe bright → dim → bright (2 cycles)
             glow_levels = [
-                "bright_white", "#ddddff", "#aaaaee", "#8888dd", "#6666cc",
-                "#8888dd", "#aaaaee", "#ddddff", "bright_white",
-                "#ddddff", "#aaaaee", "#8888dd", "#aaaaee", "#ddddff", "bright_white",
+                "bright_white",
+                "#ddddff",
+                "#aaaaee",
+                "#8888dd",
+                "#6666cc",
+                "#8888dd",
+                "#aaaaee",
+                "#ddddff",
+                "bright_white",
+                "#ddddff",
+                "#aaaaee",
+                "#8888dd",
+                "#aaaaee",
+                "#ddddff",
+                "bright_white",
             ]
             for glow in glow_levels:
                 text = Text("\n\n")
                 for line in LOGO_BIG:
                     text.append(line + "\n", style=glow)
-                text.append("\n          GPU toolkit for local LLMs\n", style="dim italic")
+                text.append(
+                    "\n          GPU toolkit for local LLMs\n", style="dim italic"
+                )
                 live.update(Align.center(text))
                 time.sleep(0.05)
 
@@ -840,7 +923,10 @@ def _show_logo_intro():
                 text = Text("\n")
                 remaining = LOGO_BIG[trim:]
                 for i, line in enumerate(remaining):
-                    text.append(line + "\n", style=LOGO_GRADIENT[min(i + trim, len(LOGO_GRADIENT) - 1)])
+                    text.append(
+                        line + "\n",
+                        style=LOGO_GRADIENT[min(i + trim, len(LOGO_GRADIENT) - 1)],
+                    )
                 live.update(Align.center(text))
                 time.sleep(0.07)
 
@@ -858,7 +944,9 @@ def _show_logo_intro():
     except Exception:
         # Fallback: just print small logo
         console.print()
-        console.print("  [bold bright_cyan]local[/][bold bright_magenta]fit[/]  [dim]GPU toolkit for local LLMs[/]")
+        console.print(
+            "  [bold bright_cyan]local[/][bold bright_magenta]fit[/]  [dim]GPU toolkit for local LLMs[/]"
+        )
         console.print()
 
 
@@ -893,7 +981,11 @@ def _boot_screen():
             all_models = []
 
     is_cpu_only = specs.get("cpu_only", False)
-    gpu_total = specs["gpu_total_mb"] if is_cpu_only else (metal.get("total_mb") or specs["gpu_total_mb"])
+    gpu_total = (
+        specs["gpu_total_mb"]
+        if is_cpu_only
+        else (metal.get("total_mb") or specs["gpu_total_mb"])
+    )
 
     model_mb = 0
     model_name = "none running"
@@ -907,12 +999,18 @@ def _boot_screen():
             # Try to get from /v1/models API
             try:
                 import urllib.request as _ur
+
                 with _ur.urlopen("http://127.0.0.1:8089/v1/models", timeout=2) as _r:
                     _md = json.loads(_r.read())
                     _mid = _md.get("data", [{}])[0].get("id", "")
                     if _mid:
                         # Clean up: gemma-4-E4B-it-UD-Q8_K_XL.gguf → Gemma 4 E4B Q8_K_XL
-                        name = _mid.replace(".gguf", "").replace("-it-UD-", " ").replace("-it-", " ").replace("-", " ")
+                        name = (
+                            _mid.replace(".gguf", "")
+                            .replace("-it-UD-", " ")
+                            .replace("-it-", " ")
+                            .replace("-", " ")
+                        )
             except Exception:
                 pass
         model_name = name or "model"
@@ -952,8 +1050,14 @@ def _boot_screen():
     dfree = di.get("disk_free_gb", 0)
     dcache = di.get("hf_cache_gb", 0)
     if is_cpu_only:
-        gpu_line = f"{used_mb // 1024}/{gpu_total // 1024}GB used · CPU-only" if used_mb else f"{specs['ram_gb']}GB available · CPU-only"
-        machine_line = f"{specs['chip']} · {specs['ram_gb']}GB · {specs['cpu_cores']} CPU cores"
+        gpu_line = (
+            f"{used_mb // 1024}/{gpu_total // 1024}GB used · CPU-only"
+            if used_mb
+            else f"{specs['ram_gb']}GB available · CPU-only"
+        )
+        machine_line = (
+            f"{specs['chip']} · {specs['ram_gb']}GB · {specs['cpu_cores']} CPU cores"
+        )
         subtitle = f"{specs['chip']}  {specs['ram_gb']}GB RAM"
     else:
         if used_mb:
@@ -974,8 +1078,16 @@ def _boot_screen():
         "verdict": verdict,
         "color": border_color,
         "gpu": gpu_line,
-        "swap": f"{swap_mb // 1024}GB" + (" · close apps to fix" if swap_mb > 2000 else ""),
-        "disk": f"{dfree}GB free · cache {dcache}GB",
+        "swap": f"{swap_mb // 1024}GB"
+        + (
+            " · CRITICAL /cleanup to fix"
+            if swap_mb > 8000
+            else " · high /cleanup to fix"
+            if swap_mb > 2000
+            else ""
+        ),
+        "disk": f"{dfree}GB free · cache {dcache}GB"
+        + (f" · {dcache}GB reclaimable" if dcache > 20 else ""),
         "model": model_line,
         "machine": machine_line,
         "subtitle": subtitle,
@@ -992,7 +1104,11 @@ def _boot_screen():
     def _fmt_dl(downloads):
         if not downloads:
             return "0 dl"
-        return f"{downloads // 1000}K dl" if downloads < 1_000_000 else f"{downloads / 1_000_000:.1f}M dl"
+        return (
+            f"{downloads // 1000}K dl"
+            if downloads < 1_000_000
+            else f"{downloads / 1_000_000:.1f}M dl"
+        )
 
     def _clean_reason(reason):
         return (
@@ -1057,6 +1173,95 @@ def _boot_screen():
             action="launch_tool_local",
         )
 
+    # Show Ollama running models as ACTIVE
+    try:
+        import urllib.request as _ur_active, json as _j_active
+
+        _or = _ur_active.urlopen("http://127.0.0.1:11434/api/ps", timeout=2)
+        _od = _j_active.loads(_or.read())
+        for _om in _od.get("models", []):
+            _oname = _om.get("name", "")
+            _osize = _om.get("size", 0) // (1024**3)
+            if _oname and not srv["running"]:  # skip if llama-server already shown
+                _add_item(
+                    section="ACTIVE",
+                    label=_oname,
+                    meta="ollama",
+                    detail=f"Ollama :11434 · {_osize}GB GPU",
+                    repo="ollama",
+                    source="Ollama",
+                    accent="green",
+                    badge="●",
+                    selectable=True,
+                    action="launch_tool_local",
+                )
+    except Exception:
+        pass
+
+    # Show running image server as ACTIVE
+    try:
+        import urllib.request as _ur_img, json as _j_img
+
+        _ir = _ur_img.urlopen("http://127.0.0.1:8189/health", timeout=2)
+        _id = _j_img.loads(_ir.read())
+        if _id.get("status") == "ok" and _id.get("model", "not loaded") != "not loaded":
+            _add_item(
+                section="ACTIVE",
+                label=f"{_id['model']} (image)",
+                meta="image",
+                detail=f"Image server :8189 · mflux",
+                repo="image:8189",
+                source="local",
+                accent="cyan",
+                badge="●",
+                selectable=True,
+                action="switch_image",
+            )
+    except Exception:
+        pass
+
+    # Show available image models (that are NOT currently running)
+    try:
+        from localfit.image_models import IMAGE_MODELS
+
+        _running_img = None
+        try:
+            _ir2 = _ur_img.urlopen("http://127.0.0.1:8189/health", timeout=1)
+            _id2 = _j_img.loads(_ir2.read())
+            _running_img = _id2.get("model", "")
+        except Exception:
+            pass
+        # Show top local-friendly image models
+        _img_picks = ["flux2-klein-4b", "flux2-klein-9b", "flux1-schnell", "fibo"]
+        for _imk in _img_picks:
+            _imv = IMAGE_MODELS.get(_imk)
+            if not _imv:
+                continue
+            # Skip if already running
+            if _running_img and (
+                _running_img in _imk
+                or _imk.replace("flux2-", "").replace("flux1-", "")
+                in (_running_img or "")
+            ):
+                continue
+            _vram = _imv.get("vram_gb", 0)
+            _fits = _vram * 1024 < (specs.get("gpu_total_mb", 0) - 2048)
+            if _fits:
+                _add_item(
+                    section="COMPATIBLE",
+                    label=f"{_imk} (image)",
+                    meta=f"{_imv['pipeline']}",
+                    detail=f"{_vram}GB VRAM · {_imv['task']}",
+                    repo=_imv["repo"],
+                    source="image",
+                    accent="cyan",
+                    badge="◐",
+                    selectable=True,
+                    action="start_image",
+                )
+    except Exception:
+        pass
+
     # Show active remote sessions
     for session in _get_active_remote_sessions():
         _add_item(
@@ -1070,6 +1275,24 @@ def _boot_screen():
             badge="●",
             selectable=True,
             action="launch_tool_remote",
+        )
+
+    # Add cleanup action right after ACTIVE if swap or cache is high
+    if swap_mb > 2000 or dcache > 20:
+        _cleanup_label = f"Cleanup: free {swap_mb // 1024}GB swap"
+        if dcache > 20:
+            _cleanup_label += f" + {dcache}GB cache"
+        _add_item(
+            section="ACTIONS",
+            label=_cleanup_label,
+            meta="press C",
+            detail=f"Unload Ollama models, clear swap, free GPU memory",
+            repo=None,
+            source="cleanup",
+            accent="red" if swap_mb > 8000 else "yellow",
+            badge="!",
+            selectable=False,
+            action="cleanup",
         )
 
     installed_total = sum(m["size_gb"] for m in di.get("models", []))
@@ -1112,7 +1335,9 @@ def _boot_screen():
                 section="RECOMMENDED",
                 label=e2b["name"],
                 meta=f"~{e2b['size_gb']}GB",
-                detail=_clean_reason(e2b.get("description", "Smaller fallback for tight memory budgets.")),
+                detail=_clean_reason(
+                    e2b.get("description", "Smaller fallback for tight memory budgets.")
+                ),
                 repo=e2b_repo,
                 source=_source(e2b_repo) or "localfit",
                 accent="yellow",
@@ -1143,8 +1368,16 @@ def _boot_screen():
             detail = f"Compatible with your machine · already installed · {_fmt_dl(model['downloads'])}"
             badge = "✓"
         elif is_cpu_only:
-            cpu_note = "CPU-only" if est == "?" or not isinstance(est, (int, float)) or est <= specs["ram_gb"] * 0.6 else "CPU slow"
-            detail = f"Fits your RAM budget · {_fmt_dl(model['downloads'])} · {cpu_note}"
+            cpu_note = (
+                "CPU-only"
+                if est == "?"
+                or not isinstance(est, (int, float))
+                or est <= specs["ram_gb"] * 0.6
+                else "CPU slow"
+            )
+            detail = (
+                f"Fits your RAM budget · {_fmt_dl(model['downloads'])} · {cpu_note}"
+            )
             badge = "→"
         else:
             detail = f"Fits your local GPU budget · {_fmt_dl(model['downloads'])}"
@@ -1217,20 +1450,13 @@ def _boot_screen():
         )
 
     if not items:
-        _add_item(
-            section="RECOMMENDED",
-            label="Search for a model",
-            meta="",
-            detail="Press s to open the full model picker.",
-            repo=None,
-            accent="yellow",
-            badge="★",
-            selectable=False,
-        )
+        console.print("  [dim]No models found for this query.[/]")
+        return
 
+    os.system("clear")
     while True:
         result = show_home_menu(system, items)
-        if not result or result["action"] == "quit":
+        if not result or result.get("action") in ("quit", "back", None):
             return
         if result["action"] == "simulate":
             _interactive_simulate()
@@ -1246,9 +1472,11 @@ def _boot_screen():
         if result["action"] == "remote_status":
             if result.get("repo") == "runpod":
                 from localfit.cloud import cloud_status
+
                 cloud_status()
             else:
                 from localfit.remote import remote_status
+
                 remote_status()
             continue
         if result["action"] in ("launch_tool_local", "launch_tool_remote"):
@@ -1258,9 +1486,13 @@ def _boot_screen():
                 console.print(f"\n  [green]● Model running locally on :8089[/]\n")
             else:
                 try:
-                    _st = json.loads((Path.home() / ".localfit" / "active_kaggle.json").read_text())
+                    _st = json.loads(
+                        (Path.home() / ".localfit" / "active_kaggle.json").read_text()
+                    )
                     _remote_ep = _st.get("endpoint", "")
-                    console.print(f"\n  [magenta]● {_st.get('model','?')} (Kaggle remote)[/]")
+                    console.print(
+                        f"\n  [magenta]● {_st.get('model', '?')} (Kaggle remote)[/]"
+                    )
                     console.print(f"  [cyan]{_remote_ep}[/]\n")
                 except Exception:
                     console.print(f"\n  [yellow]Remote session active[/]\n")
@@ -1270,18 +1502,356 @@ def _boot_screen():
                 if _remote_ep:
                     # Check if endpoint is alive before launching
                     import urllib.request as _ur
+
                     try:
                         _ur.urlopen(f"{_remote_ep}/v1/models", timeout=5)
                         console.print(f"  [green]● Endpoint alive[/]")
                     except Exception:
-                        console.print(f"  [red]● Endpoint dead — Kaggle session may have expired[/]")
-                        console.print(f"  [dim]Restart: localfit run gemma4:e4b --remote kaggle[/]")
-                        input("\n  Press Enter to go back...")
-                        continue
-                    _model = _st.get("model", "gemma4:e4b") if "_st" in dir() else "gemma4:e4b"
-                    _launch_tool_with_endpoint(picked, f"{_remote_ep}/v1", _model)
+                        # Endpoint dead — check for local server first
+                        _local_available = False
+                        for _lport in [8089, 11434]:
+                            try:
+                                _ur.urlopen(
+                                    f"http://127.0.0.1:{_lport}/v1/models", timeout=2
+                                )
+                                _local_available = True
+                                console.print(
+                                    f"  [yellow]● Remote expired — switching to local :{_lport}[/]"
+                                )
+                                _remote_ep = None  # use local
+                                break
+                            except Exception:
+                                pass
+
+                        if not _local_available:
+                            console.print(
+                                f"  [yellow]● Remote expired — auto-restarting Kaggle...[/]"
+                            )
+                            _model = (
+                                _st.get("model", "gemma4:e4b")
+                                if "_st" in dir()
+                                else "gemma4:e4b"
+                            )
+                            try:
+                                from localfit.remote import remote_serve_kaggle
+
+                                remote_serve_kaggle(_model, max_runtime_minutes=30)
+                                try:
+                                    _st = json.loads(
+                                        (
+                                            Path.home()
+                                            / ".localfit"
+                                            / "active_kaggle.json"
+                                        ).read_text()
+                                    )
+                                    _remote_ep = _st.get("endpoint", "")
+                                    if _remote_ep:
+                                        console.print(
+                                            f"  [green]● Restarted: {_remote_ep}[/]"
+                                        )
+                                    else:
+                                        console.print(f"  [red]● Failed to restart[/]")
+                                        input("\n  Press Enter to go back...")
+                                        continue
+                                except Exception:
+                                    console.print(
+                                        f"  [red]● Failed to get new endpoint[/]"
+                                    )
+                                    input("\n  Press Enter to go back...")
+                                    continue
+                            except Exception as _re:
+                                console.print(f"  [red]● Restart failed: {_re}[/]")
+                                input("\n  Press Enter to go back...")
+                                continue
+                    _model = (
+                        _st.get("model", "gemma4:e4b")
+                        if "_st" in dir()
+                        else "gemma4:e4b"
+                    )
+                    if _remote_ep:
+                        _launch_tool_with_endpoint(picked, f"{_remote_ep}/v1", _model)
+                    else:
+                        _launch_tool(picked, None)
                 else:
                     _launch_tool(picked, None)
+            continue
+        if result["action"] in ("switch_image", "start_image"):
+            # Switch or start image model
+            label = result.get("label", "")
+            img_name = label.replace(" (image)", "").strip()
+            if result["action"] == "switch_image":
+                from localfit.image_models import IMAGE_MODELS
+
+                os.system("clear")
+                console.print(
+                    f"\n  [bold]Switch image model[/] (currently: [cyan]{img_name}[/])\n"
+                )
+                _img_choices = []
+                for k, v in IMAGE_MODELS.items():
+                    vram = v.get("vram_gb", 0)
+                    fits = vram * 1024 < specs.get("gpu_total_mb", 0)
+                    if fits:
+                        _img_choices.append((k, v))
+
+                if not _img_choices:
+                    console.print("  [dim]No compatible image models for your GPU[/]")
+                    input("\n  Press Enter to go back...")
+                    continue
+
+                # Arrow-key selection
+                _sel = 0
+                _current = None
+                for i, (k, _) in enumerate(_img_choices):
+                    if (
+                        k.replace("flux2-", "").replace("flux1-", "") in img_name
+                        or img_name in k
+                    ):
+                        _sel = i
+                        break
+
+                import sys as _sys_img
+                import tty as _tty_img
+                import termios as _termios_img
+
+                _old = _termios_img.tcgetattr(_sys_img.stdin)
+                try:
+                    _tty_img.setraw(_sys_img.stdin.fileno())
+                    while True:
+                        _sys_img.stdout.write(f"\033[H\033[J")  # clear screen
+                        _sys_img.stdout.write(
+                            f"\r\n  \033[1mSwitch image model\033[0m (currently: \033[36m{img_name}\033[0m)\r\n\r\n"
+                        )
+                        for i, (k, v) in enumerate(_img_choices):
+                            vram = v.get("vram_gb", 0)
+                            if i == _sel:
+                                _sys_img.stdout.write(
+                                    f"  \033[32m> {i + 1}. \033[1;36m{k:25s}\033[0m  {vram}GB  {v['pipeline']}\r\n"
+                                )
+                            else:
+                                _sys_img.stdout.write(
+                                    f"    {i + 1}. {k:25s}  {vram}GB  {v['pipeline']}\r\n"
+                                )
+                        _sys_img.stdout.write(
+                            f"\r\n  \033[2m↑↓ move · Enter select · q cancel\033[0m"
+                        )
+                        _sys_img.stdout.flush()
+
+                        ch = _sys_img.stdin.read(1)
+                        if ch == "\r" or ch == "\n":
+                            break
+                        elif ch == "q" or ch == "\x1b" and _sys_img.stdin.read(1) == "":
+                            _sel = -1
+                            break
+                        elif ch == "\x1b":
+                            _sys_img.stdin.read(1)  # skip [
+                            arrow = _sys_img.stdin.read(1)
+                            if arrow == "A":  # up
+                                _sel = (_sel - 1) % len(_img_choices)
+                            elif arrow == "B":  # down
+                                _sel = (_sel + 1) % len(_img_choices)
+                        elif ch.isdigit():
+                            idx = int(ch) - 1
+                            if 0 <= idx < len(_img_choices):
+                                _sel = idx
+                                break
+                finally:
+                    _termios_img.tcsetattr(_sys_img.stdin, _termios_img.TCSADRAIN, _old)
+
+                if _sel < 0:
+                    continue
+                img_name = _img_choices[_sel][0]
+
+            # Skip if same model already running
+            _already = False
+            try:
+                import urllib.request as _ur_sw, json as _j_sw
+
+                _hr = _ur_sw.urlopen("http://127.0.0.1:8189/health", timeout=2)
+                _hd = _j_sw.loads(_hr.read())
+                if _hd.get("model", "") in img_name or img_name.replace(
+                    "flux2-", ""
+                ).replace("flux1-", "") in _hd.get("model", ""):
+                    console.print(f"\n  [green]✓ {img_name} is already running[/]")
+                    _already = True
+            except Exception:
+                pass
+
+            if _already:
+                input("\n  Press Enter to go back...")
+                continue
+
+            # Start/switch image server
+            console.print(f"\n  [cyan]Starting image server: {img_name}...[/]")
+            import subprocess as _isp
+
+            _isp.run(
+                ["pkill", "-f", "localfit.image_server"], capture_output=True, timeout=5
+            )
+            import time as _it
+
+            _it.sleep(1)
+            _start_image_server(img_name)
+            input("\n  Press Enter to go back...")
+            continue
+        if result["action"] == "cleanup":
+            os.system("clear")
+            import urllib.request as _ur_cl, json as _j_cl
+
+            # Gather Ollama models
+            _ollama_models = []
+            _total_ollama = 0
+            try:
+                _tags = _j_cl.loads(
+                    _ur_cl.urlopen("http://127.0.0.1:11434/api/tags", timeout=3).read()
+                )
+                _ollama_models = _tags.get("models", [])
+                _ollama_models.sort(key=lambda x: x.get("size", 0), reverse=True)
+                _total_ollama = sum(
+                    m.get("size", 0) / (1024**3) for m in _ollama_models
+                )
+            except Exception:
+                pass
+
+            _actions = [
+                f"Unload all Ollama GPU models (free swap now)",
+                f"Remove unused Ollama models (keep 2 smallest, free {_total_ollama - sum(m.get('size', 0) / (1024**3) for m in sorted(_ollama_models, key=lambda x: x.get('size', 0))[:2]):.0f}GB)"
+                if _ollama_models
+                else "Remove Ollama models (none found)",
+                f"Clear HuggingFace cache ({dcache}GB)",
+                f"ALL — do everything above",
+                f"Cancel",
+            ]
+
+            # Arrow-key menu
+            import sys as _sys_cl, tty as _tty_cl, termios as _termios_cl
+
+            _sel_cl = 0
+            _old_cl = _termios_cl.tcgetattr(_sys_cl.stdin)
+            try:
+                _tty_cl.setraw(_sys_cl.stdin.fileno())
+                while True:
+                    # Render
+                    _sys_cl.stdout.write(f"\033[H\033[J")  # clear screen
+                    _sys_cl.stdout.write(
+                        f"\n  \033[1mCleanup — free memory and disk\033[0m\n\n"
+                    )
+
+                    # Ollama models table
+                    if _ollama_models:
+                        _sys_cl.stdout.write(
+                            f"  \033[1mOllama models on disk:\033[0m\r\n"
+                        )
+                        for _om in _ollama_models:
+                            _sz = _om.get("size", 0) / (1024**3)
+                            _sys_cl.stdout.write(
+                                f"    {_om['name']:35s}  {_sz:.1f}GB\r\n"
+                            )
+                        _sys_cl.stdout.write(
+                            f"    \033[1m{'Total':35s}  {_total_ollama:.1f}GB\033[0m\r\n"
+                        )
+                    _sys_cl.stdout.write(f"\r\n  \033[1mActions:\033[0m\r\n\r\n")
+
+                    for i, act in enumerate(_actions):
+                        if i == _sel_cl:
+                            _sys_cl.stdout.write(
+                                f"  \033[32m> {i + 1}. \033[1m{act}\033[0m\r\n"
+                            )
+                        else:
+                            _sys_cl.stdout.write(
+                                f"    {i + 1}. \033[2m{act}\033[0m\r\n"
+                            )
+
+                    _sys_cl.stdout.write(
+                        f"\r\n  \033[2m↑↓ move · Enter select · q cancel\033[0m"
+                    )
+                    _sys_cl.stdout.flush()
+
+                    ch = _sys_cl.stdin.read(1)
+                    if ch == "\r" or ch == "\n":
+                        break
+                    elif ch == "q":
+                        _sel_cl = 4  # Cancel
+                        break
+                    elif ch == "\x1b":
+                        _sys_cl.stdin.read(1)
+                        arrow = _sys_cl.stdin.read(1)
+                        if arrow == "A":
+                            _sel_cl = (_sel_cl - 1) % len(_actions)
+                        elif arrow == "B":
+                            _sel_cl = (_sel_cl + 1) % len(_actions)
+                    elif ch.isdigit():
+                        idx = int(ch) - 1
+                        if 0 <= idx < len(_actions):
+                            _sel_cl = idx
+                            break
+            finally:
+                _termios_cl.tcsetattr(_sys_cl.stdin, _termios_cl.TCSADRAIN, _old_cl)
+
+            _choice = str(_sel_cl + 1)
+            os.system("clear")
+
+            if _choice in ("1", "4"):
+                console.print(f"\n  [dim]Unloading Ollama models from GPU...[/]")
+                try:
+                    for _om in _ollama_models:
+                        _payload = json.dumps(
+                            {"model": _om["name"], "keep_alive": 0}
+                        ).encode()
+                        _req = urllib.request.Request(
+                            "http://127.0.0.1:11434/api/generate",
+                            data=_payload,
+                            headers={"Content-Type": "application/json"},
+                        )
+                        urllib.request.urlopen(_req, timeout=5)
+                    console.print(f"  [green]✓ All models unloaded from GPU[/]")
+                except Exception as _e:
+                    console.print(f"  [yellow]Partial unload: {_e}[/]")
+
+            if _choice in ("2", "4"):
+                console.print(f"\n  [dim]Removing large Ollama models...[/]")
+                _sorted = sorted(_ollama_models, key=lambda x: x.get("size", 0))
+                _keep = {m["name"] for m in _sorted[:2]}
+                _removed = 0
+                for _om in _sorted[2:]:
+                    try:
+                        _payload = json.dumps({"name": _om["name"]}).encode()
+                        _req = urllib.request.Request(
+                            "http://127.0.0.1:11434/api/delete",
+                            data=_payload,
+                            headers={"Content-Type": "application/json"},
+                            method="DELETE",
+                        )
+                        urllib.request.urlopen(_req, timeout=10)
+                        _sz = _om.get("size", 0) / (1024**3)
+                        console.print(
+                            f"    [red]✗[/] Removed {_om['name']} ({_sz:.1f}GB)"
+                        )
+                        _removed += _sz
+                    except Exception:
+                        pass
+                console.print(
+                    f"  [green]✓ Freed {_removed:.1f}GB · Kept: {', '.join(_keep)}[/]"
+                )
+
+            if _choice in ("3", "4"):
+                import shutil as _sh_cl
+
+                hf_cache = Path.home() / ".cache/huggingface/hub"
+                if hf_cache.exists():
+                    console.print(
+                        f"\n  [dim]Clearing HuggingFace cache ({dcache}GB)...[/]"
+                    )
+                    _sh_cl.rmtree(hf_cache)
+                    console.print(f"  [green]✓ Cleared {dcache}GB[/]")
+
+            if _choice != "5":
+                console.print(f"\n  [dim]Purging system memory...[/]")
+                import subprocess as _sp_cl
+
+                _sp_cl.run(["sudo", "purge"], capture_output=True, timeout=10)
+                console.print(f"  [green]✓ Memory purged[/]")
+
+            input("\n  Press Enter to go back...")
             continue
         if result["action"] == "inspect" and result.get("repo"):
             outcome = _serve_model(result["repo"])
@@ -1874,7 +2444,11 @@ def _get_active_remote_sessions():
                 "detail": (
                     f"Started {int((time.time() - pod.get('started_at', time.time())) / 60)} min ago"
                     + (f" · {pod.get('quant')}" if pod.get("quant") else "")
-                    + (f" · {pod.get('tunnel_url')}/v1" if pod.get("tunnel_url") else "")
+                    + (
+                        f" · {pod.get('tunnel_url')}/v1"
+                        if pod.get("tunnel_url")
+                        else ""
+                    )
                 ),
             }
         )
@@ -1935,7 +2509,12 @@ def _arrow_tool_picker(title="Launch a tool", endpoint_info=None):
                     subtitle += "  "
                 subtitle += "[dim]↑↓/jk move · enter select · 1-9 jump · q back[/]"
                 live.update(
-                    Panel(text, border_style="cyan", width=min(console.width - 4, 55), subtitle=subtitle),
+                    Panel(
+                        text,
+                        border_style="cyan",
+                        width=min(console.width - 4, 55),
+                        subtitle=subtitle,
+                    ),
                     refresh=True,
                 )
 
@@ -1971,6 +2550,7 @@ def _arrow_tool_picker(title="Launch a tool", endpoint_info=None):
 def _find_free_port(start=8189):
     """Find a free port starting from `start`."""
     import socket
+
     for port in range(start, start + 20):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -1982,62 +2562,163 @@ def _find_free_port(start=8189):
 
 
 def _start_image_server(image_model="klein-4b", quantize=4):
-    """Start the localfit image server in background if not running."""
-    import subprocess
+    """Start the localfit image server in background if not running.
 
-    # Check if already running on 8189
+    Handles all platforms:
+      - Mac: mflux (MLX native, fastest)
+      - Linux/WSL: diffusers + torch (CUDA/ROCm)
+      - Remote: returns None if deps missing (caller should offer remote)
+    """
+    import subprocess, time, urllib.request, json
+
+    # ── Check if already running and healthy ──
     try:
-        import urllib.request
         with urllib.request.urlopen("http://127.0.0.1:8189/health", timeout=2) as r:
-            import json
             health = json.loads(r.read())
-            if health.get("status") == "ok":
-                console.print(f"  [green]✓[/] Image server already running: {health.get('model', '?')}")
+            if (
+                health.get("status") == "ok"
+                and health.get("model", "not loaded") != "not loaded"
+            ):
+                console.print(
+                    f"  [green]✓[/] Image server already running: {health.get('model', '?')}"
+                )
                 return 8189
+            else:
+                # Server responding but model not loaded — kill and restart
+                console.print(f"  [yellow]Stale image server — restarting...[/]")
+                subprocess.run(
+                    ["pkill", "-f", "localfit.image_server"],
+                    capture_output=True,
+                    timeout=5,
+                )
+                time.sleep(1)
     except Exception:
-        pass
+        # Not running — clean up any zombie
+        subprocess.run(
+            ["pkill", "-f", "localfit.image_server"], capture_output=True, timeout=5
+        )
+        time.sleep(0.5)
 
-    # Find free port
-    port = _find_free_port(8189)
-    if port != 8189:
-        console.print(f"  [dim]Port 8189 busy, using {port}[/]")
+    port = 8189
 
-    # Resolve model name
+    # ── Check deps are installed before attempting ──
+    python_exe = sys.executable
+    dep_check = subprocess.run(
+        [python_exe, "-c", "import mflux; print('mflux')"],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    has_mflux = dep_check.returncode == 0
+
+    if not has_mflux:
+        dep_check2 = subprocess.run(
+            [python_exe, "-c", "import diffusers, torch; print('diffusers')"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        has_diffusers = dep_check2.returncode == 0
+    else:
+        has_diffusers = False
+
+    if not has_mflux and not has_diffusers:
+        # Auto-install based on platform
+        import platform
+
+        is_mac = platform.system() == "Darwin"
+        dep_name = "mflux" if is_mac else "diffusers torch"
+        console.print(
+            f"  [yellow]Image deps missing — auto-installing {dep_name}...[/]"
+        )
+        try:
+            install_cmd = [python_exe, "-m", "pip", "install", "--quiet"]
+            if is_mac:
+                install_cmd.append("mflux")
+            else:
+                install_cmd.extend(["diffusers", "torch"])
+            result = subprocess.run(
+                install_cmd, capture_output=True, text=True, timeout=300
+            )
+            if result.returncode == 0:
+                console.print(f"  [green]✓[/] Installed {dep_name}")
+            else:
+                console.print(f"  [red]Failed to install {dep_name}[/]")
+                console.print(f"  [dim]Manual fix: pip install {dep_name}[/]")
+                if is_mac:
+                    console.print(f"  [dim]Or: pipx inject localfit mflux[/]")
+                return port  # Return port anyway — server won't start but won't block
+        except Exception as e:
+            console.print(f"  [red]Install failed: {e}[/]")
+            return port
+
+    # ── Resolve model name ──
     from localfit.image_models import resolve_image_model
+
     model_info = resolve_image_model(image_model)
     if model_info:
-        console.print(f"  Starting image server: [cyan]{model_info['repo']}[/] ({model_info['pipeline']})")
+        console.print(
+            f"  Starting image server: [cyan]{model_info['repo']}[/] ({model_info['pipeline']})"
+        )
     else:
         console.print(f"  Starting image server: [cyan]{image_model}[/]")
 
-    # Start in background
-    python_exe = sys.executable
+    # ── Start with visible output so user sees loading progress ──
     proc = subprocess.Popen(
-        [python_exe, "-m", "localfit.image_server", str(port), image_model, str(quantize)],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        [
+            python_exe,
+            "-m",
+            "localfit.image_server",
+            str(port),
+            image_model,
+            str(quantize),
+        ],
+        stdout=None,  # Show model loading progress
+        stderr=subprocess.STDOUT,
     )
 
-    # Wait for ready
-    import time
-    console.print(f"  [dim]Loading model (first run downloads weights)...[/]")
-    for i in range(60):
+    # ── Wait for model to be FULLY loaded ──
+    console.print(f"  [dim]Loading image model (first run downloads ~2GB)...[/]")
+    for i in range(90):
         time.sleep(2)
+        # Check process died
+        if proc.poll() is not None:
+            console.print(f"  [red]Image server exited (code {proc.returncode})[/]")
+            import platform
+
+            if platform.system() == "Darwin":
+                console.print(f"  [dim]Fix: pipx inject localfit mflux[/]")
+            else:
+                console.print(f"  [dim]Fix: pipx inject localfit diffusers torch[/]")
+            return port
         try:
-            import urllib.request
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as r:
-                import json
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/health", timeout=2
+            ) as r:
                 health = json.loads(r.read())
-                if health.get("status") == "ok":
-                    console.print(f"  [green]✓[/] Image server ready on :{port} ({health.get('model', '?')})")
+                if (
+                    health.get("status") == "ok"
+                    and health.get("model", "not loaded") != "not loaded"
+                ):
+                    console.print(
+                        f"  [green]✓[/] Image server ready on :{port} ({health.get('model', '?')})"
+                    )
                     return port
+        except urllib.error.HTTPError:
+            # 503 = still loading
+            if i > 0 and i % 5 == 0:
+                console.print(f"  [dim]Still loading... ({i * 2}s)[/]")
         except Exception:
-            pass
+            if i > 0 and i % 5 == 0:
+                console.print(f"  [dim]Waiting for server... ({i * 2}s)[/]")
 
     console.print(f"  [yellow]Image server still loading on :{port}...[/]")
     return port
 
 
-def _launch_tool_with_endpoint(tool, api_base, model_name="localmodel", image_model=None):
+def _launch_tool_with_endpoint(
+    tool, api_base, model_name="localmodel", image_model=None
+):
     """Launch a tool connected to a specific API endpoint (local or remote). No model picker."""
     import subprocess, webbrowser
 
@@ -2050,9 +2731,15 @@ def _launch_tool_with_endpoint(tool, api_base, model_name="localmodel", image_mo
         # Check if we already have a remote image tunnel (from ntfy)
         try:
             import urllib.request as _wr2
-            ntfy_topic = f"localfit-img-{image_model}".replace("/", "-").replace(":", "-")[:40]
-            _r = _wr2.urlopen(f"https://ntfy.sh/{ntfy_topic}/json?poll=1&since=5m", timeout=5)
+
+            ntfy_topic = f"localfit-img-{image_model}".replace("/", "-").replace(
+                ":", "-"
+            )[:40]
+            _r = _wr2.urlopen(
+                f"https://ntfy.sh/{ntfy_topic}/json?poll=1&since=5m", timeout=5
+            )
             import json as _j2
+
             for line in _r.read().decode().strip().split("\n"):
                 if line.strip():
                     msg = _j2.loads(line).get("message", "")
@@ -2096,14 +2783,21 @@ def _launch_tool_with_endpoint(tool, api_base, model_name="localmodel", image_mo
             # Check existing users
             try:
                 import sqlite3
+
                 _db = sqlite3.connect(db_path)
                 _users = _db.execute("SELECT email FROM user LIMIT 1").fetchall()
                 _db.close()
                 if _users:
                     console.print(f"  [dim]Login: {_users[0][0]}[/]")
-                    console.print(f"  [dim]Forgot password? Run: localfit --launch webui --reset-auth[/]")
+                    console.print(
+                        f"  [dim]Forgot password? Run: localfit --launch webui --reset-auth[/]"
+                    )
                     try:
-                        _ans = input("  Skip auth for this session? (y/n): ").strip().lower()
+                        _ans = (
+                            input("  Skip auth for this session? (y/n): ")
+                            .strip()
+                            .lower()
+                        )
                         if _ans == "y":
                             env["WEBUI_AUTH"] = "False"
                     except (EOFError, KeyboardInterrupt):
@@ -2113,11 +2807,25 @@ def _launch_tool_with_endpoint(tool, api_base, model_name="localmodel", image_mo
 
         launched = False
         for cmd in [
-            ["uv", "run", "--python", "3.11", "--with", "open-webui", "--", "open-webui", "serve", "--port", str(webui_port)],
+            [
+                "uv",
+                "run",
+                "--python",
+                "3.11",
+                "--with",
+                "open-webui",
+                "--",
+                "open-webui",
+                "serve",
+                "--port",
+                str(webui_port),
+            ],
             ["open-webui", "serve", "--port", str(webui_port)],
         ]:
             try:
-                subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.Popen(
+                    cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
                 launched = True
                 break
             except FileNotFoundError:
@@ -2128,10 +2836,13 @@ def _launch_tool_with_endpoint(tool, api_base, model_name="localmodel", image_mo
             console.print(f"  [dim]Install: pip install open-webui[/]")
             return
 
-        console.print(f"  [green]✓ Open WebUI starting on http://localhost:{webui_port}[/]")
+        console.print(
+            f"  [green]✓ Open WebUI starting on http://localhost:{webui_port}[/]"
+        )
 
         # Wait for ready + auto-configure image gen
         import time, urllib.request as _wr
+
         for _i in range(30):
             time.sleep(2)
             try:
@@ -2145,30 +2856,47 @@ def _launch_tool_with_endpoint(tool, api_base, model_name="localmodel", image_mo
             try:
                 _signin = _wr.Request(
                     f"http://localhost:{webui_port}/api/v1/auths/signin",
-                    data=json.dumps({"email": "admin@localhost", "password": "admin"}).encode(),
+                    data=json.dumps(
+                        {"email": "admin@localhost", "password": "admin"}
+                    ).encode(),
                     headers={"Content-Type": "application/json"},
                 )
-                _token = json.loads(_wr.urlopen(_signin, timeout=5).read()).get("token", "")
+                _token = json.loads(_wr.urlopen(_signin, timeout=5).read()).get(
+                    "token", ""
+                )
                 if _token:
                     _settings = _wr.Request(
                         f"http://localhost:{webui_port}/api/v1/users/user/settings/update",
                         data=json.dumps({"ui": {"imageGeneration": True}}).encode(),
-                        headers={"Authorization": f"Bearer {_token}", "Content-Type": "application/json"},
+                        headers={
+                            "Authorization": f"Bearer {_token}",
+                            "Content-Type": "application/json",
+                        },
                     )
                     _wr.urlopen(_settings, timeout=5)
                     console.print(f"  [green]✓[/] Image generation enabled by default")
             except Exception:
-                console.print(f"  [dim]Tip: Enable Image toggle in chat to generate images[/]")
+                console.print(
+                    f"  [dim]Tip: Enable Image toggle in chat to generate images[/]"
+                )
 
         webbrowser.open(f"http://localhost:{webui_port}")
 
     elif tool in ("claude",):
         from localfit.proxy import PROXY_PORT, ensure_proxy_process
         from localfit.safe_config import get_claude_launch_env
-        proxy_ready = ensure_proxy_process(llama_url=f"{api_base}/chat/completions", port=PROXY_PORT)
+
+        proxy_ready = ensure_proxy_process(
+            llama_url=f"{api_base}/chat/completions", port=PROXY_PORT
+        )
         if proxy_ready:
-            subprocess.Popen(["claude", "--bare", "--model", model_name],
-                env={**os.environ, **get_claude_launch_env(api_base=f"http://127.0.0.1:{PROXY_PORT}")})
+            subprocess.Popen(
+                ["claude", "--bare", "--model", model_name],
+                env={
+                    **os.environ,
+                    **get_claude_launch_env(api_base=f"http://127.0.0.1:{PROXY_PORT}"),
+                },
+            )
 
     elif tool in ("opencode",):
         # Use env vars only — don't touch user's opencode config
@@ -2182,7 +2910,18 @@ def _launch_tool_with_endpoint(tool, api_base, model_name="localmodel", image_mo
         env = os.environ.copy()
         env["OPENAI_BASE_URL"] = api_base
         env["OPENAI_API_KEY"] = "no-key-required"
-        subprocess.Popen(["codex", "--model", model_name, "-c", "model_provider=openai", "-c", "features.use_responses_api=false"], env=env)
+        subprocess.Popen(
+            [
+                "codex",
+                "--model",
+                model_name,
+                "-c",
+                "model_provider=openai",
+                "-c",
+                "features.use_responses_api=false",
+            ],
+            env=env,
+        )
 
     elif tool in ("aider",):
         env = os.environ.copy()
@@ -2190,8 +2929,31 @@ def _launch_tool_with_endpoint(tool, api_base, model_name="localmodel", image_mo
         env["OPENAI_API_KEY"] = "no-key-required"
         subprocess.Popen(["aider", "--model", f"openai/{model_name}"], env=env)
 
+    elif tool in ("localcoder",):
+        import shutil
+
+        lc_bin = shutil.which("localcoder")
+        if not lc_bin:
+            console.print(f"  [red]localcoder not installed.[/]")
+            console.print(f"  [dim]Install: pipx install localcoder[/]")
+            return
+        env = os.environ.copy()
+        env["LOCALFIT_API_BASE"] = api_base
+        env["LOCALFIT_MODEL"] = model_name
+        console.print(f"  [green]Launching localcoder → {api_base}[/]")
+        os.execvpe(lc_bin, [lc_bin, "--api", api_base, "-m", model_name], env)
+
+    elif tool in ("webui", "open-webui", "openwebui", "chat"):
+        import webbrowser
+
+        console.print(f"  [green]Opening Open WebUI...[/]")
+        console.print(f"  [dim]API: {api_base}[/]")
+        webbrowser.open(f"http://localhost:3000")
+
     else:
-        console.print(f"  [yellow]Tool '{tool}' not supported for direct endpoint launch[/]")
+        console.print(
+            f"  [yellow]Tool '{tool}' not supported for direct endpoint launch[/]"
+        )
 
 
 def _print_local_ready_hints(port=8089, api_model=None):
@@ -2202,9 +2964,14 @@ def _print_local_ready_hints(port=8089, api_model=None):
     api_url = f"http://127.0.0.1:{port}/v1"
 
     from localfit.backends import get_machine_specs, get_metal_gpu_stats
+
     specs = get_machine_specs()
     metal = get_metal_gpu_stats()
-    gpu_total = specs["gpu_total_mb"] if specs.get("cpu_only") else (metal.get("total_mb") or specs["gpu_total_mb"])
+    gpu_total = (
+        specs["gpu_total_mb"]
+        if specs.get("cpu_only")
+        else (metal.get("total_mb") or specs["gpu_total_mb"])
+    )
 
     system = {
         "subtitle": f"{specs.get('chip', 'GPU')}  {gpu_total // 1024}GB",
@@ -2219,10 +2986,17 @@ def _print_local_ready_hints(port=8089, api_model=None):
 
     items = [
         {
-            "index": 1, "section": "ACTIVE", "label": api_model or "model",
-            "meta": "local", "detail": f"Running on :{port}",
-            "repo": f"local:{port}", "source": "local", "accent": "green",
-            "badge": "●", "action": "noop", "selectable": False,
+            "index": 1,
+            "section": "ACTIVE",
+            "label": api_model or "model",
+            "meta": "local",
+            "detail": f"Running on :{port}",
+            "repo": f"local:{port}",
+            "source": "local",
+            "accent": "green",
+            "badge": "●",
+            "action": "noop",
+            "selectable": False,
         },
     ]
 
@@ -2235,12 +3009,21 @@ def _print_local_ready_hints(port=8089, api_model=None):
     ]
 
     for i, (name, tool_id, desc) in enumerate(tools, 2):
-        items.append({
-            "index": i, "section": "TOOLS", "label": name,
-            "meta": "", "detail": desc,
-            "repo": tool_id, "source": "", "accent": "cyan",
-            "badge": "→", "action": "launch_tool", "selectable": True,
-        })
+        items.append(
+            {
+                "index": i,
+                "section": "TOOLS",
+                "label": name,
+                "meta": "",
+                "detail": desc,
+                "repo": tool_id,
+                "source": "",
+                "accent": "cyan",
+                "badge": "→",
+                "action": "launch_tool",
+                "selectable": True,
+            }
+        )
 
     os.system("clear")
     while True:
@@ -2358,12 +3141,16 @@ def _serve_model(model_query, background=False):
     # ── Unified model picker: MLX + GGUF + Remote in one menu ──
     from localfit.run_menu import collect_options, show_run_menu
     from localfit.backends import (
-        check_mlx_available, start_mlx_server,
-        stop_conflicting_backends, convert_to_mlx,
+        check_mlx_available,
+        start_mlx_server,
+        stop_conflicting_backends,
+        convert_to_mlx,
     )
 
     console.print(f"\n  [dim]Searching backends for {model_query}...[/]")
-    local_opts, remote_opts, recommended, menu_meta = collect_options(model_query, specs)
+    local_opts, remote_opts, recommended, menu_meta = collect_options(
+        model_query, specs
+    )
 
     if local_opts or remote_opts:
         # Cross-platform: Mac uses "chip" (Apple M4 Pro), Linux uses nvidia-smi GPU name
@@ -2376,7 +3163,9 @@ def _serve_model(model_query, background=False):
         else:
             hw_label = f"{gpu_gb}GB GPU" if gpu_gb > 0 else "CPU only"
 
-        choice = show_run_menu(model_query, hw_label, local_opts, remote_opts, recommended)
+        choice = show_run_menu(
+            model_query, hw_label, local_opts, remote_opts, recommended
+        )
         if choice in (None, "back"):
             return
         if choice == "quit":
@@ -2410,6 +3199,7 @@ def _serve_model(model_query, background=False):
                 path = _download_gguf(opt["repo"], opt["filename"])
                 if path:
                     from localfit.prerequisites import ensure_llama_server
+
                     binary = ensure_llama_server()
                     if not binary:
                         return
@@ -2426,7 +3216,18 @@ def _serve_model(model_query, background=False):
                         if max_ctx >= nice:
                             max_ctx = nice
                             break
-                    cmd = [binary, "-m", path, "--port", "8089", "-ngl", ngl, "-c", str(max_ctx), "--jinja"]
+                    cmd = [
+                        binary,
+                        "-m",
+                        path,
+                        "--port",
+                        "8089",
+                        "-ngl",
+                        ngl,
+                        "-c",
+                        str(max_ctx),
+                        "--jinja",
+                    ]
                     # VLM mmproj
                     if data.get("is_vlm") and data.get("mmproj_files"):
                         mmproj_name = data["mmproj_files"][0]["filename"]
@@ -2434,20 +3235,27 @@ def _serve_model(model_query, background=False):
                         if mmproj_path:
                             cmd += ["--mmproj", mmproj_path]
                     import tempfile, subprocess as _sp
-                    stderr_log = tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False, prefix="llama-")
+
+                    stderr_log = tempfile.NamedTemporaryFile(
+                        mode="w", suffix=".log", delete=False, prefix="llama-"
+                    )
                     env = os.environ.copy()
                     bin_dir = os.path.dirname(binary)
                     ld = env.get("LD_LIBRARY_PATH", "")
                     if bin_dir not in ld:
                         env["LD_LIBRARY_PATH"] = bin_dir + (":" + ld if ld else "")
                     console.print(f"  [dim]Starting llama-server...[/]")
-                    proc = _sp.Popen(cmd, stdout=_sp.DEVNULL, stderr=stderr_log, env=env)
+                    proc = _sp.Popen(
+                        cmd, stdout=_sp.DEVNULL, stderr=stderr_log, env=env
+                    )
                     import time
+
                     for i in range(90):
                         if proc.poll() is not None:
                             break
                         try:
                             import urllib.request as _ur
+
                             _ur.urlopen(f"http://127.0.0.1:8089/health", timeout=1)
                             console.print(f"  [green]✓ Running on :8089[/]")
                             console.print(f"  [dim]API: http://127.0.0.1:8089/v1[/]")
@@ -2799,7 +3607,7 @@ def _config_tool(tool_name):
     console.print(f"  [bold]Then run:[/] {tool}\n")
 
 
-def _launch_tool(tool_name, model_name=None, tunnel=False):
+def _launch_tool(tool_name, model_name=None, tunnel=False, image_model=None):
     """Start model + launch coding tool in one command.
 
     Like: ollama launch claude --model qwen3.5
@@ -3086,6 +3894,36 @@ def _launch_tool(tool_name, model_name=None, tunnel=False):
 
     env = os.environ.copy()
 
+    # Start image server if --img was passed (available for all tools)
+    img_port = None
+    if image_model:
+        # Check for remote image tunnel first (Kaggle/RunPod via ntfy)
+        img_url = None
+        try:
+            import urllib.request as _wr3, json as _j3
+
+            ntfy_topic = f"localfit-img-{image_model}".replace("/", "-").replace(
+                ":", "-"
+            )[:40]
+            _r = _wr3.urlopen(
+                f"https://ntfy.sh/{ntfy_topic}/json?poll=1&since=5m", timeout=5
+            )
+            for line in _r.read().decode().strip().split("\n"):
+                if line.strip():
+                    msg = _j3.loads(line).get("message", "")
+                    if "trycloudflare" in msg:
+                        img_url = msg
+        except Exception:
+            pass
+
+        if img_url:
+            env["LOCALFIT_IMAGE_ENDPOINT"] = img_url
+            console.print(f"  [green]✓[/] Image: {image_model} (remote: {img_url})")
+        else:
+            img_port = _start_image_server(image_model)
+            env["LOCALFIT_IMAGE_ENDPOINT"] = f"http://127.0.0.1:{img_port}"
+            console.print(f"  [green]✓[/] Image: {image_model} (local :{img_port})")
+
     if tool == "claude":
         from localfit.proxy import PROXY_PORT, ensure_proxy_process
         from localfit.safe_config import get_claude_launch_cmd, get_claude_launch_env
@@ -3176,19 +4014,21 @@ def _launch_tool(tool_name, model_name=None, tunnel=False):
         # Use the original model name (e.g. "gemma4-e4b") not the GGUF filename
         # Resolve colon syntax: gemma4:e4b → gemma4-e4b
         lc_model = (model_name or model_alias).replace(":", "-")
-        cmd = ["localcoder", "--api", f"http://localhost:{port}", "-m", lc_model, "--compact", "--yolo"]
+        cmd = [
+            "localcoder",
+            "--api",
+            f"http://localhost:{port}",
+            "-m",
+            lc_model,
+            "--compact",
+            "--yolo",
+        ]
 
         localcoder_bin = shutil.which("localcoder")
         if not localcoder_bin:
             console.print(f"  [red]localcoder not installed.[/]")
             console.print(f"  [dim]Install: pipx install localcoder[/]\n")
             return
-
-        # Set image endpoint for localcoder
-        if image_model:
-            img_endpoint = img_url or f"http://127.0.0.1:{img_port}"
-            env["LOCALFIT_IMAGE_ENDPOINT"] = img_endpoint
-            console.print(f"  [green]✓[/] Image: {image_model} ({img_endpoint})")
 
         console.print(
             f"  [bold]Launching:[/] localcoder --api http://localhost:{port} -m {lc_model}"
@@ -3244,20 +4084,25 @@ def _launch_tool(tool_name, model_name=None, tunnel=False):
 
         # Check remote Kaggle session
         from pathlib import Path as _Path
+
         kaggle_state = _Path.home() / ".localfit" / "active_kaggle.json"
         if kaggle_state.exists():
             try:
                 state = json.loads(kaggle_state.read_text())
                 ep = state.get("endpoint")
                 if ep:
-                    endpoints.append((f"Kaggle remote ({state.get('model', '?')})", f"{ep}/v1"))
+                    endpoints.append(
+                        (f"Kaggle remote ({state.get('model', '?')})", f"{ep}/v1")
+                    )
             except Exception:
                 pass
 
         if not endpoints:
             console.print(f"\n  [yellow]No running models found.[/]")
             console.print(f"  Start one first: [cyan]localfit run MODEL[/]")
-            console.print(f"  Or remote:       [cyan]localfit run MODEL --remote kaggle[/]\n")
+            console.print(
+                f"  Or remote:       [cyan]localfit run MODEL --remote kaggle[/]\n"
+            )
             return
 
         if len(endpoints) == 1:
@@ -3280,9 +4125,12 @@ def _launch_tool(tool_name, model_name=None, tunnel=False):
         # Check if Open WebUI already running
         try:
             _wr.urlopen(f"http://localhost:{webui_port}", timeout=2)
-            console.print(f"  [green]✓[/] Open WebUI already running on http://localhost:{webui_port}")
+            console.print(
+                f"  [green]✓[/] Open WebUI already running on http://localhost:{webui_port}"
+            )
             console.print(f"  [dim]Opening browser...[/]")
             import webbrowser
+
             webbrowser.open(f"http://localhost:{webui_port}")
             return
         except Exception:

@@ -3,6 +3,12 @@
 import json, os, shutil, subprocess, sys, time, urllib.request, urllib.parse
 from pathlib import Path
 
+# ── Kill tqdm line spam BEFORE any HF imports ──
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+os.environ["TQDM_DISABLE"] = "1"
+os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"  # fast downloads if hf_transfer installed
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -71,69 +77,305 @@ BACKENDS = {
 
 # ── Known models ──
 MODELS = {
+    # ── Gemma 4 — verified sizes from HF API 2026-04-12 ──
     "gemma4-26b": {
-        "name": "Gemma 4 26B Q3_K_XL",
+        "name": "Gemma 4 26B MoE",
         "hf_repo": "unsloth/gemma-4-26B-A4B-it-GGUF",
         "hf_pattern": "*UD-Q3_K_XL*",
-        "size_gb": 12,
+        "size_gb": 12.5,  # Q4 actual
+        "size_q2_gb": 9.2,
+        "size_q4_gb": 12.5,
+        "size_q8_gb": 26.0,
         "ram_required": 16,
-        "description": "Best quality on 24GB Mac. MoE, 49 tok/s, perfect tool calling.",
+        "description": "Best MoE for 24GB. Vision, tool calling, 49 tok/s.",
         "ollama_tag": "gemma4:26b",
         "backend": "llamacpp",
         "server_flags": "-ngl 99 -c 32768 -np 1 -fa on -ctk q4_0 -ctv q4_0 --no-warmup --jinja",
-    },
-    "qwen35b-a3b": {
-        "name": "Qwen 3.5 35B-A3B Q2_K_XL",
-        "hf_repo": "unsloth/Qwen3.5-35B-A3B-GGUF",
-        "hf_pattern": "*UD-Q2_K_XL*",
-        "size_gb": 11.3,
-        "ram_required": 16,
-        "description": "MoE coding beast. 49 tok/s, 256 experts, tool calling, vision.",
-        "ollama_tag": None,
-        "backend": "llamacpp",
-        "server_flags": "-ngl 99 -c 32768 -np 1 -fa on -ctk q4_0 -ctv q4_0 --no-warmup --jinja --reasoning-budget 0",
-    },
-    "qwen35-4b": {
-        "name": "Qwen 3.5 4B",
-        "hf_repo": "unsloth/Qwen3.5-4B-GGUF",
-        "hf_pattern": "*UD-Q4_K_XL*",
-        "size_gb": 2.7,
-        "ram_required": 8,
-        "description": "Ultrafast at 50 tok/s. Great for quick tasks, only 2.7GB GPU.",
-        "ollama_tag": None,
-        "backend": "llamacpp",
-        "server_flags": "-ngl 99 -c 32768 --jinja --reasoning-budget 0",
+        "source": "unsloth",
     },
     "gemma4-e4b": {
         "name": "Gemma 4 E4B",
         "hf_repo": "unsloth/gemma-4-E4B-it-GGUF",
         "hf_pattern": "*Q4_K_M*",
-        "size_gb": 4.6,
+        "size_gb": 4.4,  # Q4 actual
+        "size_q2_gb": 3.3,
+        "size_q4_gb": 4.4,
+        "size_q8_gb": 8.1,
         "ram_required": 8,
-        "description": "Sweet spot for 16GB. Vision + audio + code. Runs great on CPU too.",
+        "description": "Sweet spot for 16GB. Vision + audio + code.",
         "ollama_tag": "gemma4:e4b",
         "backend": "llamacpp",
         "server_flags": "-ngl 99 -c 32768 --jinja",
+        "source": "unsloth",
+    },
+    "gemma4-31b": {
+        "name": "Gemma 4 31B Dense",
+        "hf_repo": "unsloth/gemma-4-31B-it-GGUF",
+        "hf_pattern": "*Q3_K_XL*",
+        "size_gb": 15.2,  # Q4 actual
+        "size_q2_gb": 7.9,
+        "size_q4_gb": 15.2,
+        "size_q8_gb": 32.6,
+        "ram_required": 24,
+        "description": "Dense 31B. Q3 fits 16GB (7.9GB), Q4 needs 24GB.",
+        "ollama_tag": None,
+        "backend": "llamacpp",
+        "server_flags": "-ngl 99 -c 16384 --jinja",
+        "source": "unsloth",
     },
     "gemma4-e2b": {
         "name": "Gemma 4 E2B",
         "hf_repo": "unsloth/gemma-4-E2B-it-GGUF",
         "hf_pattern": "*Q4_K_M*",
-        "size_gb": 2.7,
+        "size_gb": 2.8,  # Q4 actual
+        "size_q2_gb": 2.1,
+        "size_q4_gb": 2.8,
+        "size_q8_gb": 4.9,
         "ram_required": 8,
-        "description": "Fastest small model. Vision + audio. Best for CPU-only.",
+        "description": "Tiny + fast. Vision + audio. Runs on anything.",
         "ollama_tag": "gemma4:e2b",
         "backend": "llamacpp",
         "server_flags": "-ngl 99 -c 32768 --jinja",
+        "source": "unsloth",
     },
-    "qwen3.5-27b": {
-        "name": "Qwen 3.5 27B",
-        "hf_repo": None,
-        "size_gb": 17,
+    # ── Qwen 3.5 — verified sizes ──
+    "qwen35-35b-a3b": {
+        "name": "Qwen 3.5 35B MoE",
+        "hf_repo": "unsloth/Qwen3.5-35B-A3B-GGUF",
+        "hf_pattern": "*UD-Q2_K_XL*",
+        "size_gb": 16.3,  # Q4 actual — does NOT fit 16GB
+        "size_q2_gb": 9.9,
+        "size_q4_gb": 16.3,
+        "size_q8_gb": 45.3,
         "ram_required": 24,
-        "description": "Strong alternative. Dense 27B, good tool calling.",
+        "description": "MoE coding beast. Q2 fits 16GB (9.9GB).",
+        "ollama_tag": None,
+        "backend": "llamacpp",
+        "server_flags": "-ngl 99 -c 32768 -np 1 -fa on -ctk q4_0 -ctv q4_0 --no-warmup --jinja --reasoning-budget 0",
+        "source": "unsloth",
+    },
+    "qwen35-122b-a10b": {
+        "name": "Qwen 3.5 122B MoE",
+        "hf_repo": "unsloth/Qwen3.5-122B-A10B-GGUF",
+        "hf_pattern": "*UD-IQ2_XXS*",
+        "size_gb": 36.5,  # Q4 actual
+        "size_q2_gb": 36.5,
+        "size_q4_gb": 36.5,
+        "size_q8_gb": 43.4,
+        "ram_required": 48,
+        "description": "Best MoE overall. Needs 48GB+ or cloud.",
+        "ollama_tag": None,
+        "backend": "llamacpp",
+        "source": "unsloth",
+        "cloud_only": True,
+    },
+    "qwen35-4b": {
+        "name": "Qwen 3.5 4B",
+        "hf_repo": "unsloth/Qwen3.5-4B-GGUF",
+        "hf_pattern": "*UD-Q4_K_XL*",
+        "size_gb": 2.3,  # Q4 actual
+        "size_q2_gb": 1.4,
+        "size_q4_gb": 2.3,
+        "size_q8_gb": 5.5,
+        "ram_required": 8,
+        "description": "Ultrafast. Only 2.3GB GPU.",
+        "ollama_tag": None,
+        "backend": "llamacpp",
+        "server_flags": "-ngl 99 -c 32768 --jinja --reasoning-budget 0",
+        "source": "unsloth",
+    },
+    "qwen35-9b": {
+        "name": "Qwen 3.5 9B",
+        "hf_repo": "unsloth/Qwen3.5-9B-GGUF",
+        "hf_pattern": "*UD-Q4_K_XL*",
+        "size_gb": 4.8,  # Q4 actual
+        "size_q2_gb": 3.0,
+        "size_q4_gb": 4.8,
+        "size_q8_gb": 12.1,
+        "ram_required": 12,
+        "description": "Great mid-range. Fits 16GB with image model.",
+        "ollama_tag": None,
+        "backend": "llamacpp",
+        "server_flags": "-ngl 99 -c 32768 --jinja",
+        "source": "unsloth",
+    },
+    "qwen35-27b": {
+        "name": "Qwen 3.5 27B",
+        "hf_repo": "unsloth/Qwen3.5-27B-GGUF",
+        "hf_pattern": "*UD-Q3_K_XL*",
+        "size_gb": 13.9,  # Q4 actual
+        "size_q2_gb": 8.0,
+        "size_q4_gb": 13.9,
+        "size_q8_gb": 33.1,
+        "ram_required": 24,
+        "description": "Dense 27B. Q2 fits 16GB (8GB).",
         "ollama_tag": "qwen3.5:27b",
+        "backend": "llamacpp",
+        "source": "unsloth",
+    },
+    # ── Qwen 3 Coder — verified sizes ──
+    "qwen3-coder-next": {
+        "name": "Qwen3 Coder-Next",
+        "hf_repo": "unsloth/Qwen3-Coder-Next-GGUF",
+        "hf_pattern": "*UD-IQ4_NL*",
+        "size_gb": 35.8,  # Q4 actual — NOT 16GB!
+        "size_q2_gb": 17.6,
+        "size_q4_gb": 35.8,
+        "size_q8_gb": 46.2,
+        "ram_required": 48,
+        "description": "Latest coder. Needs 48GB+ or cloud.",
+        "ollama_tag": None,
+        "backend": "llamacpp",
+        "source": "unsloth",
+        "cloud_only": True,
+    },
+    "qwen3-coder-30b": {
+        "name": "Qwen3-Coder 30B MoE",
+        "hf_repo": "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
+        "hf_pattern": "*UD-Q3_K_XL*",
+        "size_gb": 15.3,  # Q4 actual
+        "size_q2_gb": 7.5,
+        "size_q4_gb": 15.3,
+        "size_q8_gb": 33.5,
+        "ram_required": 24,
+        "description": "MoE coder. Q2 fits 16GB (7.5GB).",
+        "ollama_tag": None,
+        "backend": "llamacpp",
+        "source": "unsloth",
+    },
+    # ── DeepSeek — verified sizes ──
+    "deepseek-r1-qwen-14b": {
+        "name": "DeepSeek R1 Qwen 14B",
+        "hf_repo": "unsloth/DeepSeek-R1-Distill-Qwen-14B-GGUF",
+        "hf_pattern": "*Q4_K_M*",
+        "size_gb": 8.4,  # Q4 actual
+        "size_q2_gb": 5.4,
+        "size_q4_gb": 8.4,
+        "size_q8_gb": 14.6,
+        "ram_required": 16,
+        "description": "Best reasoning distill. Fits 16GB.",
+        "ollama_tag": None,
+        "backend": "llamacpp",
+        "source": "unsloth",
+    },
+    "deepseek-r1-qwen-32b": {
+        "name": "DeepSeek R1 Qwen 32B",
+        "hf_repo": "unsloth/DeepSeek-R1-Distill-Qwen-32B-GGUF",
+        "hf_pattern": "*Q3_K_XL*",
+        "size_gb": 18.5,  # Q4 actual
+        "size_q2_gb": 11.5,
+        "size_q4_gb": 18.5,
+        "size_q8_gb": 32.4,
+        "ram_required": 24,
+        "description": "Strongest reasoning. Q2 fits 16GB (11.5GB).",
+        "ollama_tag": None,
+        "backend": "llamacpp",
+        "source": "unsloth",
+    },
+    # ── GLM — verified: GLM-5 is 700B, GLM-4.7-Flash is also huge ──
+    "glm-5": {
+        "name": "GLM-5 (700B)",
+        "hf_repo": "unsloth/GLM-5-GGUF",
+        "hf_pattern": "*Q1_0*",
+        "size_gb": 164.0,  # smallest GGUF is 164GB!
+        "ram_required": 192,
+        "description": "700B model. Cloud only (MI300X/B200).",
+        "ollama_tag": None,
+        "backend": "llamacpp",
+        "source": "unsloth",
+        "cloud_only": True,
+    },
+    "glm-47-flash": {
+        "name": "GLM 4.7 Flash",
+        "hf_repo": "unsloth/GLM-4.7-Flash-GGUF",
+        "hf_pattern": "*UD-Q4_K_XL*",
+        "size_gb": 15.2,  # Q4 actual — NOT 5GB!
+        "size_q2_gb": 7.8,
+        "size_q4_gb": 15.2,
+        "size_q8_gb": 33.2,
+        "ram_required": 24,
+        "description": "Q2 fits 16GB (7.8GB). Q4 needs 24GB.",
+        "ollama_tag": None,
+        "backend": "llamacpp",
+        "source": "unsloth",
+    },
+    # ── Others — verified ──
+    "kimi-k25": {
+        "name": "Kimi K2.5",
+        "hf_repo": "unsloth/Kimi-K2.5-GGUF",
+        "hf_pattern": "*UD-IQ2_XXS*",
+        "size_gb": 100,  # no GGUF files yet, estimate
+        "ram_required": 128,
+        "description": "Huge MoE. Cloud only.",
+        "ollama_tag": None,
+        "backend": "llamacpp",
+        "source": "unsloth",
+        "cloud_only": True,
+    },
+    "gpt-oss-20b": {
+        "name": "gpt-oss 20B",
+        "hf_repo": "unsloth/gpt-oss-20b-GGUF",
+        "hf_pattern": "*Q4_K_M*",
+        "size_gb": 10.7,  # Q4 actual — NOT 12GB
+        "size_q2_gb": 10.7,
+        "size_q4_gb": 10.7,
+        "size_q8_gb": 12.3,
+        "ram_required": 16,
+        "description": "OpenAI open-source. Fits 16GB at Q2.",
+        "ollama_tag": None,
+        "backend": "llamacpp",
+        "source": "unsloth",
+    },
+    "nemotron3-nano-4b": {
+        "name": "Nemotron 3 Nano 4B",
+        "hf_repo": "unsloth/NVIDIA-Nemotron-3-Nano-4B-GGUF",
+        "hf_pattern": "*Q4_K_M*",
+        "size_gb": 2.4,  # Q4 actual
+        "size_q2_gb": 2.0,
+        "size_q4_gb": 2.4,
+        "size_q8_gb": 5.2,
+        "ram_required": 8,
+        "description": "NVIDIA tiny. 2.4GB, great speed.",
+        "ollama_tag": None,
+        "backend": "llamacpp",
+        "source": "unsloth",
+    },
+    "devstral-24b": {
+        "name": "Devstral 2 24B",
+        "hf_repo": "unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF",
+        "hf_pattern": "*Q3_K_XL*",
+        "size_gb": 11.9,  # Q4 actual
+        "size_q2_gb": 5.2,
+        "size_q4_gb": 11.9,
+        "size_q8_gb": 27.0,
+        "ram_required": 16,
+        "description": "Mistral coder. Q2 fits 8GB (5.2GB).",
+        "ollama_tag": None,
+        "backend": "llamacpp",
+        "source": "unsloth",
+    },
+    "minimax-m25": {
+        "name": "MiniMax M2.5",
+        "hf_repo": "unsloth/MiniMax-M2.5-GGUF",
+        "hf_pattern": "*UD-IQ2_XXS*",
+        "size_gb": 51.9,  # smallest GGUF is 51.9GB
+        "ram_required": 64,
+        "description": "Large MoE. Cloud only.",
+        "ollama_tag": None,
+        "backend": "llamacpp",
+        "source": "unsloth",
+        "cloud_only": True,
+    },
+    # ── Small ──
+    "gemma2-2b": {
+        "name": "Gemma 2 2B",
+        "hf_repo": None,
+        "size_gb": 1.5,
+        "ram_required": 4,
+        "description": "Tiny. Runs on anything.",
+        "ollama_tag": "gemma2:2b",
         "backend": "ollama",
+        "source": "unsloth",
     },
 }
 
@@ -141,9 +383,14 @@ MODELS = {
 # Family aliases → variants ordered best-to-smallest.
 # "localfit --launch claude --model gemma4" picks the best that fits your GPU.
 MODEL_FAMILIES = {
-    "gemma4": ["gemma4-26b", "gemma4-e4b", "gemma4-e2b"],
-    "qwen35": ["qwen35b-a3b", "qwen3.5-27b", "qwen35-4b"],
-    "qwen3.5": ["qwen35b-a3b", "qwen3.5-27b", "qwen35-4b"],
+    "gemma4": ["gemma4-26b", "gemma4-31b", "gemma4-e4b", "gemma4-e2b"],
+    "qwen35": ["qwen35-35b-a3b", "qwen35-27b", "qwen35-9b", "qwen35-4b"],
+    "qwen3.5": ["qwen35-35b-a3b", "qwen35-27b", "qwen35-9b", "qwen35-4b"],
+    "qwen3-coder": ["qwen3-coder-next", "qwen3-coder-30b"],
+    "deepseek": ["deepseek-r1-qwen-32b", "deepseek-r1-qwen-14b"],
+    "glm": ["glm-5", "glm-47-flash"],
+    "devstral": ["devstral-24b"],
+    "nemotron": ["nemotron3-nano-4b"],
 }
 
 
@@ -1378,16 +1625,46 @@ def download_model_hf(model_id):
             return None
 
     try:
+        # Suppress tqdm line spam
+        import logging as _dl
+
+        _dl.getLogger("huggingface_hub").setLevel(_dl.ERROR)
+        os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+        os.environ["TQDM_DISABLE"] = "1"
+
         # Download model file
         patterns = m.get("hf_pattern", "*").split(",") if m.get("hf_pattern") else None
         # Also download mmproj (vision) if available
         if patterns:
             patterns = [p.strip() for p in patterns] + ["mmproj-BF16*"]
-        snapshot_download(
-            repo_id=m["hf_repo"],
-            local_dir=str(local_dir),
-            allow_patterns=patterns,
+
+        from rich.progress import (
+            Progress,
+            SpinnerColumn,
+            TextColumn,
+            BarColumn,
+            TimeRemainingColumn,
         )
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description}"),
+            BarColumn(bar_width=30),
+            TextColumn("[dim]{task.fields[size]}[/]"),
+            TimeRemainingColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task(
+                f"  {m['name']}", total=None, size=f"~{m['size_gb']}GB"
+            )
+            snapshot_download(
+                repo_id=m["hf_repo"],
+                local_dir=str(local_dir),
+                allow_patterns=patterns,
+            )
+            progress.update(task, completed=100, total=100)
+
+        console.print(f"  [green]✓ Downloaded to {local_dir}[/]")
         return str(local_dir)
     except Exception as e:
         console.print(f"  [red]Download failed: {e}[/]")
@@ -1836,12 +2113,15 @@ def get_metal_gpu_stats():
 
 
 def get_disk_info():
-    """Get disk space and model storage info."""
+    """Get disk space and ALL model storage info across tools."""
     info = {
         "disk_total_gb": 0,
         "disk_free_gb": 0,
         "hf_cache_gb": 0,
-        "models": [],  # list of {name, size_gb, path}
+        "ollama_cache_gb": 0,
+        "comfyui_gb": 0,
+        "total_cache_gb": 0,
+        "models": [],  # list of {name, size_gb, path, source}
         "docker_gb": 0,
     }
     try:
@@ -1850,30 +2130,135 @@ def get_disk_info():
         info["disk_total_gb"] = round((st.f_blocks * st.f_frsize) / (1024**3))
         info["disk_free_gb"] = round((st.f_bavail * st.f_frsize) / (1024**3))
 
-        # HuggingFace cache total
+        # ── HuggingFace cache ──
         hf_cache = HOME / ".cache/huggingface/hub"
         if hf_cache.exists():
             total = 0
-            # Sum blob sizes (the real files, not symlinks)
-            blobs_dir = hf_cache
-            for blob in blobs_dir.rglob("*"):
+            for blob in hf_cache.rglob("*"):
                 if blob.is_file() and not blob.is_symlink():
                     total += blob.stat().st_size
             info["hf_cache_gb"] = round(total / (1024**3))
 
-        # Individual GGUF models
-        for gguf in hf_cache.rglob("*.gguf") if hf_cache.exists() else []:
-            name = gguf.name
-            if "mmproj" in name.lower():
-                continue
-            real = gguf.resolve()
-            try:
-                sz = real.stat().st_size / (1024**3)
-                info["models"].append(
-                    {"name": name, "size_gb": round(sz, 1), "path": str(real)}
-                )
-            except OSError:
-                pass
+            # Individual GGUF models
+            for gguf in hf_cache.rglob("*.gguf"):
+                name = gguf.name
+                if "mmproj" in name.lower():
+                    continue
+                real = gguf.resolve()
+                try:
+                    sz = real.stat().st_size / (1024**3)
+                    info["models"].append(
+                        {
+                            "name": name,
+                            "size_gb": round(sz, 1),
+                            "path": str(real),
+                            "source": "HuggingFace",
+                        }
+                    )
+                except OSError:
+                    pass
+
+            # Image model dirs in HF cache
+            for model_dir in hf_cache.iterdir():
+                if model_dir.name.startswith("models--") and (
+                    "flux" in model_dir.name.lower()
+                    or "klein" in model_dir.name.lower()
+                    or "z-image" in model_dir.name.lower()
+                ):
+                    total_sz = sum(
+                        f.stat().st_size
+                        for f in model_dir.rglob("*")
+                        if f.is_file() and not f.is_symlink()
+                    )
+                    sz_gb = round(total_sz / (1024**3), 1)
+                    if sz_gb > 0.1:
+                        clean_name = model_dir.name.replace("models--", "").replace(
+                            "--", "/"
+                        )
+                        info["models"].append(
+                            {
+                                "name": f"{clean_name} (image)",
+                                "size_gb": sz_gb,
+                                "path": str(model_dir),
+                                "source": "HuggingFace",
+                            }
+                        )
+
+        # ── Ollama models ──
+        ollama_dir = HOME / ".ollama/models"
+        if ollama_dir.exists():
+            total = 0
+            for blob in (
+                (ollama_dir / "blobs").rglob("*")
+                if (ollama_dir / "blobs").exists()
+                else []
+            ):
+                if blob.is_file():
+                    total += blob.stat().st_size
+            info["ollama_cache_gb"] = round(total / (1024**3))
+
+            # List individual Ollama models from manifests
+            manifests = ollama_dir / "manifests" / "registry.ollama.ai" / "library"
+            if manifests.exists():
+                for model_dir in manifests.iterdir():
+                    if model_dir.is_dir():
+                        for tag in model_dir.iterdir():
+                            if tag.is_file():
+                                try:
+                                    mdata = json.loads(tag.read_text())
+                                    sz = sum(
+                                        l.get("size", 0)
+                                        for l in mdata.get("layers", [])
+                                    )
+                                    sz_gb = round(sz / (1024**3), 1)
+                                    if sz_gb > 0.1:
+                                        info["models"].append(
+                                            {
+                                                "name": f"{model_dir.name}:{tag.name}",
+                                                "size_gb": sz_gb,
+                                                "path": str(tag),
+                                                "source": "Ollama",
+                                            }
+                                        )
+                                except Exception:
+                                    pass
+
+        # ── ComfyUI / SD-WebUI / Forge / Fooocus ──
+        for ui_dir in [
+            HOME / "ComfyUI/models",
+            HOME / "comfyui/models",
+            HOME / "stable-diffusion-webui/models",
+            HOME / "stable-diffusion-forge/models",
+            HOME / "Fooocus/models",
+            Path("/opt/ComfyUI/models"),
+        ]:
+            if ui_dir.exists():
+                total = 0
+                for f in ui_dir.rglob("*"):
+                    if f.is_file() and f.suffix.lower() in (
+                        ".safetensors",
+                        ".ckpt",
+                        ".bin",
+                        ".gguf",
+                        ".pt",
+                    ):
+                        sz = f.stat().st_size
+                        total += sz
+                        sz_gb = round(sz / (1024**3), 1)
+                        if sz_gb > 0.1:
+                            info["models"].append(
+                                {
+                                    "name": f.name,
+                                    "size_gb": sz_gb,
+                                    "path": str(f),
+                                    "source": ui_dir.parent.name,
+                                }
+                            )
+                info["comfyui_gb"] += round(total / (1024**3))
+
+        info["total_cache_gb"] = (
+            info["hf_cache_gb"] + info["ollama_cache_gb"] + info["comfyui_gb"]
+        )
         info["models"].sort(key=lambda x: x["size_gb"], reverse=True)
 
         # Docker (if running)
@@ -3095,6 +3480,310 @@ def _check_ollama_registry(model_name):
     return None
 
 
+def will_it_fit(query):
+    """Universal fit checker — paste ANY HuggingFace URL (LLM or image model).
+
+    The viral feature: works for GGUF, safetensors, diffusers, MLX, everything.
+    """
+    import re as _re
+
+    specs = get_machine_specs()
+    metal = get_metal_gpu_stats()
+    gpu_total = metal.get("total_mb") or specs.get("gpu_total_mb", 0)
+    gpu_used = metal.get("alloc_mb", 0)
+    gpu_free = gpu_total - gpu_used
+    gpu_gb = gpu_total / 1024
+    free_gb = gpu_free / 1024
+    chip = specs.get("chip", "GPU")
+    ram_gb = specs.get("ram_gb", 0)
+
+    # Parse repo ID from URL
+    repo_id = None
+    if "huggingface.co" in query:
+        m = _re.search(r"huggingface\.co/([^/]+/[^/\s?#]+)", query)
+        if m:
+            repo_id = m.group(1)
+    elif "/" in query and " " not in query:
+        repo_id = query.strip("/")
+
+    if not repo_id:
+        # Try to find in our MODELS catalog by name or ID
+        query_lower = query.lower().strip()
+        for mid, minfo in MODELS.items():
+            if (
+                query_lower == mid.lower()
+                or query_lower == minfo.get("name", "").lower()
+                or query_lower in minfo.get("name", "").lower()
+                or mid.lower() in query_lower
+            ):
+                if minfo.get("hf_repo"):
+                    repo_id = minfo["hf_repo"]
+                    break
+
+    if not repo_id:
+        # Try Ollama tag lookup
+        for mid, minfo in MODELS.items():
+            if minfo.get("ollama_tag") and query_lower == minfo["ollama_tag"].lower():
+                if minfo.get("hf_repo"):
+                    repo_id = minfo["hf_repo"]
+                    break
+
+    if not repo_id:
+        # Fall back to LLM simulate (does its own HF search)
+        return simulate_hf_model(query)
+
+    console.print(f"\n  [bold]Checking: {repo_id}[/]")
+    console.print(
+        f"  [dim]{chip} · {ram_gb}GB RAM · GPU: {gpu_gb:.0f}GB total, {free_gb:.0f}GB free[/]\n"
+    )
+
+    # Fetch model metadata from HF API
+    try:
+        url = f"https://huggingface.co/api/models/{repo_id}"
+        req = urllib.request.Request(url, headers={"User-Agent": "localfit/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            meta = json.loads(resp.read())
+    except Exception as e:
+        console.print(f"  [red]Could not fetch: {e}[/]")
+        return
+
+    pipeline_tag = meta.get("pipeline_tag", "")
+    library = meta.get("library_name", "")
+    tags = [t.lower() for t in meta.get("tags", [])]
+    siblings = meta.get("siblings", [])
+    total_bytes = meta.get("usedStorage", 0)
+    total_gb = round(total_bytes / (1024**3), 1)
+    downloads = meta.get("downloads", 0)
+
+    # Detect model type
+    is_diffusion = (
+        library == "diffusers"
+        or pipeline_tag in ("text-to-image", "image-to-image", "text-to-video")
+        or any(
+            t in tags for t in ["diffusers", "flux", "stable-diffusion", "diffusion"]
+        )
+    )
+    is_gguf = any("gguf" in t for t in tags) or any(
+        s.get("rfilename", "").endswith(".gguf") for s in siblings
+    )
+    is_mlx = "mlx" in repo_id.lower() or any("mlx" in t for t in tags)
+    is_video = pipeline_tag == "text-to-video" or any(
+        "wan" in t or "video" in t for t in tags
+    )
+
+    # Count file types
+    safetensors = [
+        s for s in siblings if s.get("rfilename", "").endswith(".safetensors")
+    ]
+    gguf_files = [s for s in siblings if s.get("rfilename", "").endswith(".gguf")]
+
+    if is_diffusion and not is_gguf:
+        _check_diffusion_fit(
+            repo_id,
+            meta,
+            pipeline_tag,
+            total_gb,
+            safetensors,
+            gpu_gb,
+            free_gb,
+            chip,
+            is_mlx,
+            is_video,
+            downloads,
+        )
+    elif is_gguf:
+        # Delegate to existing GGUF simulator
+        simulate_hf_model(query)
+    else:
+        # Generic safetensors model
+        _check_generic_fit(repo_id, total_gb, gpu_gb, free_gb, chip, downloads)
+
+
+def _check_diffusion_fit(
+    repo_id,
+    meta,
+    pipeline_tag,
+    total_gb,
+    safetensors,
+    gpu_gb,
+    free_gb,
+    chip,
+    is_mlx,
+    is_video,
+    downloads,
+):
+    """Fit analysis for diffusion/image models."""
+
+    dl_str = (
+        f"{downloads // 1000}K"
+        if downloads < 1_000_000
+        else f"{downloads / 1_000_000:.1f}M"
+    )
+
+    # Detect model family
+    repo_lower = repo_id.lower()
+    family = "Unknown"
+    if "flux.2-klein" in repo_lower or "flux2-klein" in repo_lower:
+        family = "FLUX.2 Klein"
+    elif "flux.2" in repo_lower or "flux2" in repo_lower:
+        family = "FLUX.2"
+    elif "flux.1" in repo_lower or "flux1" in repo_lower:
+        family = "FLUX.1"
+    elif "z-image" in repo_lower:
+        family = "Z-Image"
+    elif "qwen-image" in repo_lower or "qwen_image" in repo_lower:
+        family = "Qwen-Image"
+    elif "fibo" in repo_lower:
+        family = "FIBO"
+    elif "stable-diffusion" in repo_lower or "sdxl" in repo_lower:
+        family = "Stable Diffusion"
+    elif "wan" in repo_lower:
+        family = "Wan (Video)"
+
+    task = pipeline_tag or "text-to-image"
+
+    # Estimate peak VRAM (diffusion models have peak during denoising)
+    # Rule of thumb: model weights + ~30% for activations/KV during generation
+    peak_vram_gb = total_gb * 1.3
+
+    # With quantization
+    q4_gb = round(total_gb * 0.3, 1)  # Q4 ≈ 30% of BF16
+    q8_gb = round(total_gb * 0.55, 1)  # Q8 ≈ 55% of BF16
+
+    # Backends available
+    backends = []
+    if IS_MAC:
+        backends.append(
+            ("mflux (MLX)", "Mac native, fastest", q4_gb if not is_mlx else total_gb)
+        )
+        backends.append(("sd.cpp (Metal)", "GGUF quantized", q4_gb))
+    backends.append(("diffusers (BF16)", "Full precision", peak_vram_gb))
+    backends.append(
+        ("diffusers + cpu_offload", "Offload to RAM", round(total_gb * 0.4, 1))
+    )
+    if not IS_MAC:
+        backends.append(("sd.cpp (CUDA/Vulkan)", "GGUF quantized", q4_gb))
+
+    # Print analysis
+    console.print(f"  [bold cyan]{family}[/]  {task}  [dim]{dl_str} downloads[/]")
+    if is_video:
+        console.print(f"  [magenta]Video generation model[/]")
+    if is_mlx:
+        console.print(f"  [cyan]MLX optimized[/] — native Apple Silicon")
+    console.print(
+        f"  [dim]Total on disk: {total_gb}GB ({len(safetensors)} safetensors files)[/]\n"
+    )
+
+    # Fit table
+    table = Table(
+        show_header=True, header_style="bold", border_style="dim", padding=(0, 1)
+    )
+    table.add_column("Backend", width=25)
+    table.add_column("VRAM", justify="right", width=10)
+    table.add_column("Fits?", width=18)
+    table.add_column("Speed", width=20)
+    table.add_column("", width=16)
+
+    best = None
+    for name, desc, vram in backends:
+        fits = vram <= free_gb
+        fits_total = vram <= gpu_gb
+
+        if fits:
+            status = "[green]✓ fits[/]"
+            if not best:
+                best = (name, vram)
+        elif fits_total:
+            status = "[yellow]⚠ tight[/]"
+            if not best:
+                best = (name, vram)
+        else:
+            status = "[red]✗ too big[/]"
+
+        # Speed estimate for diffusion
+        if "cpu_offload" in name:
+            speed = "slow (~60-120s/img)"
+        elif "mflux" in name and IS_MAC:
+            speed = "fast (~5-20s/img)"
+        elif "sd.cpp" in name:
+            speed = "fast (~5-15s/img)"
+        else:
+            speed = "medium (~15-45s/img)"
+
+        bar_pct = min(1.0, vram / gpu_gb) if gpu_gb else 0
+        bar_w = int(bar_pct * 16)
+        bc = "green" if fits else "yellow" if fits_total else "red"
+        bar = f"[{bc}]{'█' * bar_w}[/{bc}][dim]{'░' * (16 - bar_w)}[/]"
+
+        table.add_row(name, f"{vram}GB", status, speed, bar)
+
+    console.print(table)
+
+    # Recommendation
+    if best:
+        console.print(f"\n  [green]→ Best local: {best[0]} ({best[1]}GB)[/]")
+        console.print(
+            f"    Fits your {gpu_gb:.0f}GB GPU with {free_gb - best[1]:.0f}GB spare"
+        )
+
+        # Can pair with LLM?
+        llm_room = free_gb - best[1]
+        if llm_room >= 5:
+            console.print(f"    [green]✓[/] Room for LLM too (E4B 4.6GB)")
+        elif llm_room >= 3:
+            console.print(f"    [yellow]⚠[/] Tight — small LLM only (E2B 2.7GB)")
+        else:
+            console.print(f"    [red]✗[/] No room for LLM — image only")
+    else:
+        console.print(f"\n  [red]✗ Does not fit locally[/]")
+        console.print(
+            f"    Model needs {q4_gb}GB (Q4) but you have {free_gb:.0f}GB free"
+        )
+        console.print(f"\n  [cyan]☁ Try cloud:[/]")
+        console.print(
+            f"    localfit --serve {repo_id} --remote kaggle  [dim](free T4)[/]"
+        )
+        console.print(
+            f"    localfit --serve {repo_id} --remote runpod  [dim](paid, any GPU)[/]"
+        )
+
+    # GGUF alternative?
+    if not any(
+        "gguf" in s.get("rfilename", "").lower() for s in (meta.get("siblings") or [])
+    ):
+        console.print(
+            f"\n  [dim]💡 Smaller with GGUF: search for {repo_id.split('/')[-1]}-GGUF on HuggingFace[/]"
+        )
+        console.print(
+            f"  [dim]   sd.cpp supports GGUF quantized diffusion models (Q4 = ~30% size)[/]"
+        )
+
+
+def _check_generic_fit(repo_id, total_gb, gpu_gb, free_gb, chip, downloads):
+    """Generic fit check for non-GGUF, non-diffusion models."""
+    dl_str = (
+        f"{downloads // 1000}K"
+        if downloads < 1_000_000
+        else f"{downloads / 1_000_000:.1f}M"
+    )
+    console.print(f"  [dim]{dl_str} downloads · {total_gb}GB on disk[/]\n")
+
+    fits = total_gb <= free_gb
+    fits_total = total_gb <= gpu_gb
+
+    if fits:
+        console.print(
+            f"  [green]✓ Fits your {gpu_gb:.0f}GB GPU ({free_gb:.0f}GB free)[/]"
+        )
+    elif fits_total:
+        console.print(
+            f"  [yellow]⚠ Tight — {total_gb}GB model, {free_gb:.0f}GB free[/]"
+        )
+    else:
+        console.print(f"  [red]✗ Too big — {total_gb}GB model, {gpu_gb:.0f}GB GPU[/]")
+        console.print(f"\n  [dim]Try a quantized/GGUF version or cloud GPU[/]")
+
+
 def simulate_hf_model(query):
     """Fetch a model from HuggingFace and show which quants fit.
 
@@ -3923,17 +4612,40 @@ def _download_gguf(repo_id, filename):
             else:
                 return None
 
-    # Download with Rich progress bar (suppress HF's default tqdm bar)
+    # Download with Rich progress bar (suppress ALL other progress bars)
     from rich.progress import (
-        Progress, SpinnerColumn, BarColumn, DownloadColumn,
-        TransferSpeedColumn, TimeRemainingColumn, TextColumn,
+        Progress,
+        SpinnerColumn,
+        BarColumn,
+        DownloadColumn,
+        TransferSpeedColumn,
+        TimeRemainingColumn,
+        TextColumn,
     )
 
     try:
         from huggingface_hub import hf_hub_download, snapshot_download
         import logging
+
+        # Suppress ALL HF progress output
         logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+        logging.getLogger("huggingface_hub.file_download").setLevel(logging.ERROR)
         os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+        os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+        # Also silence tqdm globally
+        os.environ["TQDM_DISABLE"] = "1"
+        try:
+            import tqdm
+
+            tqdm.tqdm.__init__.__defaults__ = (
+                (None,) * len(tqdm.tqdm.__init__.__defaults__)
+                if hasattr(tqdm.tqdm.__init__, "__defaults__")
+                and tqdm.tqdm.__init__.__defaults__
+                else None
+            )
+            tqdm.tqdm.disable = True
+        except Exception:
+            pass
 
         if is_split:
             pattern = (
@@ -3984,7 +4696,11 @@ def _download_gguf(repo_id, filename):
                     total=int(est_size_gb * 1024**3) if est_size_gb else None,
                 )
                 path = hf_hub_download(repo_id=repo_id, filename=filename)
-                progress.update(task, completed=int(est_size_gb * 1024**3) if est_size_gb else 100, total=int(est_size_gb * 1024**3) if est_size_gb else 100)
+                progress.update(
+                    task,
+                    completed=int(est_size_gb * 1024**3) if est_size_gb else 100,
+                    total=int(est_size_gb * 1024**3) if est_size_gb else 100,
+                )
 
             console.print(f"  [green]✓ Downloaded[/]")
             return path
@@ -4239,11 +4955,285 @@ def can_run_simultaneously(ram_gb, model1_gb, model2_gb):
     return (model1_gb + model2_gb) < gpu_limit
 
 
+def estimate_vram_gb(
+    params_b,
+    quant="Q4_K_M",
+    ctx_k=32,
+    kv_quant="q4_0",
+    is_moe=False,
+    active_params_b=None,
+):
+    """Estimate VRAM needed for a model at a given quant level.
+
+    Args:
+        params_b: Total parameter count in billions
+        quant: Quantization type (Q4_K_M, Q3_K_XL, etc.)
+        ctx_k: Context length in thousands (32 = 32K)
+        kv_quant: KV cache quant (f16, q4_0, q8_0)
+        is_moe: Whether model is Mixture of Experts
+        active_params_b: For MoE, the active params per token
+    Returns:
+        dict with weight_gb, kv_gb, overhead_gb, total_gb
+    """
+    bpw = QUANT_BPW.get(quant, 4.8)
+    weight_gb = (params_b * bpw) / 8  # billion params * bits / 8 = GB
+
+    # KV cache estimate
+    # Rough: 2 bytes per param per token for f16, halved for q4_0
+    hidden_dim = int(params_b**0.5 * 1024)  # rough estimate
+    if params_b <= 4:
+        hidden_dim = 2048
+    elif params_b <= 9:
+        hidden_dim = 4096
+    elif params_b <= 14:
+        hidden_dim = 5120
+    elif params_b <= 32:
+        hidden_dim = 6144
+    elif params_b <= 70:
+        hidden_dim = 8192
+    else:
+        hidden_dim = 8192
+
+    n_layers = max(1, int(params_b / (hidden_dim * hidden_dim / 1e9 * 2)))
+    if n_layers < 16:
+        n_layers = 32  # fallback
+    if n_layers > 128:
+        n_layers = 80
+
+    kv_bytes_per_token = n_layers * hidden_dim * 2 * 2  # K + V, 2 bytes each for f16
+    if kv_quant == "q4_0":
+        kv_bytes_per_token //= 4
+    elif kv_quant == "q8_0":
+        kv_bytes_per_token //= 2
+
+    kv_gb = (kv_bytes_per_token * ctx_k * 1024) / (1024**3)
+
+    # Overhead (CUDA/Metal runtime, activations, etc.)
+    overhead_gb = 0.5 if params_b < 10 else 1.0 if params_b < 30 else 1.5
+
+    # MoE: only active experts loaded in compute buffer
+    compute_gb = 0
+    if is_moe and active_params_b:
+        compute_gb = (
+            (active_params_b * bpw) / 8 * 0.1
+        )  # ~10% extra for active computation
+
+    total = weight_gb + kv_gb + overhead_gb + compute_gb
+    return {
+        "weight_gb": round(weight_gb, 1),
+        "kv_gb": round(kv_gb, 1),
+        "overhead_gb": round(overhead_gb, 1),
+        "total_gb": round(total, 1),
+    }
+
+
+def get_model_quant_options(model_id):
+    """Get all quant options for a model with VRAM estimates.
+
+    Returns list of {quant, vram_gb, fits, fits_with_image, file_pattern}
+    sorted by quality (best first).
+    """
+    m = MODELS.get(model_id)
+    if not m:
+        return []
+
+    # Detect hardware
+    specs = get_machine_specs()
+    gpu_mb = get_metal_gpu_stats().get("total_mb", 0) or specs.get("gpu_total_mb", 0)
+    gpu_gb = gpu_mb / 1024
+    usable_gb = gpu_gb - 1.5  # reserve for OS
+
+    # Parse model params from name/size
+    params_b = m.get("params_b", 0)
+    if not params_b:
+        # Estimate from name
+        name = m.get("name", "") + model_id
+        for s in [
+            "397",
+            "235",
+            "122",
+            "120",
+            "70",
+            "32",
+            "31",
+            "30",
+            "27",
+            "26",
+            "24",
+            "20",
+            "14",
+            "12",
+            "9",
+            "8",
+            "7",
+            "4",
+            "3",
+            "2",
+            "1",
+            "0.6",
+        ]:
+            if (
+                s + "B" in name
+                or s + "b" in name.lower().replace("-", "")
+                or s + "B" in model_id.upper()
+            ):
+                params_b = float(s)
+                break
+        if not params_b:
+            params_b = m.get("size_gb", 5) * 2  # rough guess
+
+    is_moe = (
+        "moe" in m.get("description", "").lower()
+        or "a3b" in model_id.lower()
+        or "a4b" in model_id.lower()
+        or "a10b" in model_id.lower()
+    )
+    active_b = None
+    if is_moe:
+        for tag in ["a3b", "a4b", "a10b", "a17b", "a22b", "a35b"]:
+            if tag in model_id.lower() or tag in m.get("name", "").lower():
+                active_b = float(tag.replace("a", "").replace("b", ""))
+                break
+
+    # Common quants to show
+    quant_order = [
+        "BF16",
+        "Q8_0",
+        "Q6_K",
+        "Q5_K_M",
+        "Q4_K_M",
+        "Q4_K_XL",
+        "IQ4_NL",
+        "Q3_K_XL",
+        "Q3_K_M",
+        "Q3_K_S",
+        "Q2_K_XL",
+        "Q2_K",
+        "IQ2_XXS",
+    ]
+
+    options = []
+    for q in quant_order:
+        est = estimate_vram_gb(
+            params_b,
+            q,
+            ctx_k=32,
+            kv_quant="q4_0",
+            is_moe=is_moe,
+            active_params_b=active_b,
+        )
+        fits = est["total_gb"] <= usable_gb
+        fits_tight = est["total_gb"] <= usable_gb + 2
+        # Check if can also run image model (klein-4b ~8GB)
+        fits_with_image = (est["total_gb"] + 8) <= usable_gb
+
+        options.append(
+            {
+                "quant": q,
+                "vram_gb": est["total_gb"],
+                "weight_gb": est["weight_gb"],
+                "kv_gb": est["kv_gb"],
+                "fits": "yes" if fits else "tight" if fits_tight else "no",
+                "fits_with_image": fits_with_image,
+                "params_b": params_b,
+                "is_moe": is_moe,
+            }
+        )
+
+    return options
+
+
+def get_all_models_fit_report():
+    """Get a fit report for ALL models in catalog for this hardware.
+
+    Returns list of {model_id, name, best_quant, vram_gb, fits, description, source,
+                     can_pair_with_image, where}
+    sorted by: fits_local first, then by quality desc.
+    """
+    specs = get_machine_specs()
+    gpu_mb = get_metal_gpu_stats().get("total_mb", 0) or specs.get("gpu_total_mb", 0)
+    gpu_gb = gpu_mb / 1024
+    usable_gb = gpu_gb - 1.5
+    is_mac = IS_MAC
+    has_mlx = False
+    if is_mac:
+        try:
+            has_mlx = check_mlx_available()
+        except Exception:
+            pass
+
+    report = []
+    for mid, m in MODELS.items():
+        options = get_model_quant_options(mid)
+        # Find best quant that fits
+        best_fit = None
+        best_tight = None
+        for opt in options:
+            if opt["fits"] == "yes" and not best_fit:
+                best_fit = opt
+            elif opt["fits"] == "tight" and not best_tight:
+                best_tight = opt
+
+        best = best_fit or best_tight
+        if best:
+            where = "local"
+            if is_mac and has_mlx:
+                where = (
+                    "local (MLX)" if m.get("backend") != "llamacpp" else "local (Metal)"
+                )
+            report.append(
+                {
+                    "model_id": mid,
+                    "name": m["name"],
+                    "best_quant": best["quant"],
+                    "vram_gb": best["vram_gb"],
+                    "fits": best["fits"],
+                    "can_pair_with_image": best["fits_with_image"],
+                    "description": m.get("description", ""),
+                    "source": m.get("source", ""),
+                    "where": where,
+                    "is_moe": best.get("is_moe", False),
+                    "cloud_only": False,
+                }
+            )
+        else:
+            # Doesn't fit locally — cloud only
+            smallest = (
+                options[-1]
+                if options
+                else {"quant": "IQ2_XXS", "vram_gb": m.get("size_gb", 99)}
+            )
+            report.append(
+                {
+                    "model_id": mid,
+                    "name": m["name"],
+                    "best_quant": smallest["quant"],
+                    "vram_gb": smallest.get("vram_gb", m.get("size_gb", 99)),
+                    "fits": "cloud",
+                    "can_pair_with_image": False,
+                    "description": m.get("description", ""),
+                    "source": m.get("source", ""),
+                    "where": "cloud (Kaggle/RunPod)",
+                    "is_moe": smallest.get("is_moe", False)
+                    if isinstance(smallest, dict)
+                    else False,
+                    "cloud_only": True,
+                }
+            )
+
+    # Sort: fits_local first (yes > tight > cloud), then by vram desc (bigger = better quality)
+    order = {"yes": 0, "tight": 1, "cloud": 2}
+    report.sort(key=lambda x: (order.get(x["fits"], 3), -x["vram_gb"]))
+    return report
+
+
 def stop_conflicting_backends(target_backend):
     """Stop other backends to free GPU memory."""
     if target_backend == "ollama":
         if check_backend_running("llamacpp"):
-            console.print(f"  [yellow]Stopping llama-server to free GPU for Ollama...[/]")
+            console.print(
+                f"  [yellow]Stopping llama-server to free GPU for Ollama...[/]"
+            )
             try:
                 subprocess.run(["pkill", "-f", "llama-server"], timeout=5)
                 time.sleep(2)
@@ -4278,14 +5268,18 @@ def stop_conflicting_backends(target_backend):
     elif target_backend == "mlx":
         # Kill llama-server and ollama models to free unified memory
         if check_backend_running("llamacpp"):
-            console.print(f"  [yellow]Stopping llama-server to free memory for MLX...[/]")
+            console.print(
+                f"  [yellow]Stopping llama-server to free memory for MLX...[/]"
+            )
             try:
                 subprocess.run(["pkill", "-f", "llama-server"], timeout=5)
                 time.sleep(2)
             except:
                 pass
         if check_backend_running("ollama"):
-            console.print(f"  [yellow]Unloading Ollama models to free memory for MLX...[/]")
+            console.print(
+                f"  [yellow]Unloading Ollama models to free memory for MLX...[/]"
+            )
             try:
                 models = get_running_models("ollama")
                 for m in models:
@@ -4318,6 +5312,7 @@ def start_ollama_serve():
 
 # ── MLX backend (Apple Silicon) ──
 
+
 def check_mlx_available():
     """Check if mlx-lm is pip-installed and we're on Apple Silicon."""
     if not IS_MAC:
@@ -4325,7 +5320,9 @@ def check_mlx_available():
     try:
         result = subprocess.run(
             [sys.executable, "-c", "import mlx_lm; print('ok')"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         return result.returncode == 0 and "ok" in result.stdout
     except Exception:
@@ -4390,10 +5387,15 @@ def start_mlx_server(model_repo, port=8080, context=32768):
     console.print(f"  [dim]Port:    {port}[/]")
 
     cmd = [
-        sys.executable, "-m", "mlx_lm.server",
-        "--model", model_repo,
-        "--port", str(port),
-        "--log-level", "WARNING",
+        sys.executable,
+        "-m",
+        "mlx_lm.server",
+        "--model",
+        model_repo,
+        "--port",
+        str(port),
+        "--log-level",
+        "WARNING",
     ]
 
     stderr_log = tempfile.NamedTemporaryFile(
@@ -4415,13 +5417,19 @@ def start_mlx_server(model_repo, port=8080, context=32768):
             return None
         try:
             url = f"http://127.0.0.1:{port}/v1/models"
-            req = urllib.request.Request(url, headers={"Content-Type": "application/json"})
+            req = urllib.request.Request(
+                url, headers={"Content-Type": "application/json"}
+            )
             with urllib.request.urlopen(req, timeout=1) as resp:
                 data = json.loads(resp.read())
                 # Find the model_id that matches what we loaded.
                 # For local paths, mlx_lm uses the absolute path as the id.
                 # For HF repos, it uses the repo id. Match by suffix.
-                model_abs = str(Path(model_repo).resolve()) if Path(model_repo).exists() else None
+                model_abs = (
+                    str(Path(model_repo).resolve())
+                    if Path(model_repo).exists()
+                    else None
+                )
                 ids = [m.get("id", "") for m in data.get("data", [])]
                 matched_id = None
                 for mid in ids:
@@ -4435,7 +5443,9 @@ def start_mlx_server(model_repo, port=8080, context=32768):
                     # Fall back: use exact path or first id
                     matched_id = model_abs if model_abs else ids[0]
                 console.print(f"  [green]✓ MLX server ready on :{port}[/]")
-                console.print(f"  [dim]API: http://127.0.0.1:{port}/v1  model: {matched_id or model_repo}[/]")
+                console.print(
+                    f"  [dim]API: http://127.0.0.1:{port}/v1  model: {matched_id or model_repo}[/]"
+                )
                 # Attach resolved model_id so callers can use it
                 proc._mlx_model_id = matched_id or model_repo
                 return proc
@@ -4482,13 +5492,20 @@ def convert_to_mlx(hf_model_repo, q_bits=4, upload_repo=None):
         return str(out_dir)
 
     console.print(f"\n  [cyan]Converting {hf_model_repo} to MLX {suffix}...[/]")
-    console.print(f"  [dim]Downloads full model then quantizes — needs ~{_estimate_bf16_ram(hf_model_repo)}GB RAM[/]")
+    console.print(
+        f"  [dim]Downloads full model then quantizes — needs ~{_estimate_bf16_ram(hf_model_repo)}GB RAM[/]"
+    )
     console.print(f"  [dim]Output: {out_dir}[/]\n")
 
     cmd = [
-        sys.executable, "-m", "mlx_lm", "convert",
-        "--hf-path", hf_model_repo,
-        "--mlx-path", str(out_dir),
+        sys.executable,
+        "-m",
+        "mlx_lm",
+        "convert",
+        "--hf-path",
+        hf_model_repo,
+        "--mlx-path",
+        str(out_dir),
     ]
     if q_bits:
         cmd += ["-q", "--q-bits", str(q_bits)]
@@ -4509,9 +5526,20 @@ def convert_to_mlx(hf_model_repo, q_bits=4, upload_repo=None):
 def _estimate_bf16_ram(hf_model_repo):
     """Rough RAM estimate for BF16 model download during MLX conversion."""
     name = hf_model_repo.lower()
-    for size, gb in [("405b", 810), ("70b", 140), ("32b", 64), ("27b", 54),
-                     ("14b", 28), ("13b", 26), ("8b", 16), ("7b", 14),
-                     ("4b", 8), ("3b", 6), ("1.5b", 3), ("1b", 2)]:
+    for size, gb in [
+        ("405b", 810),
+        ("70b", 140),
+        ("32b", 64),
+        ("27b", 54),
+        ("14b", 28),
+        ("13b", 26),
+        ("8b", 16),
+        ("7b", 14),
+        ("4b", 8),
+        ("3b", 6),
+        ("1.5b", 3),
+        ("1b", 2),
+    ]:
         if size in name:
             return gb
     return "?"

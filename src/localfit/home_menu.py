@@ -49,13 +49,18 @@ def _detail_panel(system, item, width):
 
     if item:
         table.add_row("", Text(""))
-        table.add_row("Choice", Text(str(item.get("index", "")), style="bold bright_cyan"))
+        table.add_row(
+            "Choice", Text(str(item.get("index", "")), style="bold bright_cyan")
+        )
         table.add_row("Section", Text(item["section"], style=f"bold {item['accent']}"))
         table.add_row("Target", Text(item["label"], style="bold"))
         if item.get("source"):
             table.add_row("Source", Text(item["source"]))
         if item.get("repo"):
-            table.add_row("Repo", Text(item["repo"], style="dim", no_wrap=True, overflow="ellipsis"))
+            table.add_row(
+                "Repo",
+                Text(item["repo"], style="dim", no_wrap=True, overflow="ellipsis"),
+            )
         table.add_row("Notes", Text(item["detail"], style="dim"))
 
     return Panel(
@@ -85,9 +90,14 @@ def _section_block(title, accent, rows, selected_pos):
             str(item.get("index", "")) if item.get("index") else "",
             style="bold bright_white" if is_selected else "dim",
         )
-        badge = Text(item.get("badge", ""), style=f"bold {item['accent']}" if item.get("badge") else "")
+        badge = Text(
+            item.get("badge", ""),
+            style=f"bold {item['accent']}" if item.get("badge") else "",
+        )
         label = _label_text(item, selected=is_selected)
-        meta = Text(item.get("meta", ""), style="bold bright_white" if is_selected else "dim")
+        meta = Text(
+            item.get("meta", ""), style="bold bright_white" if is_selected else "dim"
+        )
         table.add_row(index, badge, label, meta, style=row_style)
 
     return Group(Text(title, style=f"bold {accent}"), table)
@@ -100,8 +110,21 @@ def _render_layout(system, items, selected_pos, width):
     left = _detail_panel(system, current, detail_width)
 
     sections = []
-    for section_title in ("ACTIVE", "TOOLS", "ACTIONS", "INSTALLED", "RECOMMENDED", "COMPATIBLE", "TRENDING", "CLOUD"):
-        rows = [(i, item) for i, item in enumerate(items) if item["section"] == section_title]
+    for section_title in (
+        "ACTIVE",
+        "TOOLS",
+        "ACTIONS",
+        "INSTALLED",
+        "RECOMMENDED",
+        "COMPATIBLE",
+        "TRENDING",
+        "CLOUD",
+    ):
+        rows = [
+            (i, item)
+            for i, item in enumerate(items)
+            if item["section"] == section_title
+        ]
         accent = rows[0][1]["accent"] if rows else "bright_white"
         block = _section_block(section_title, accent, rows, selected_pos)
         if block is not None:
@@ -140,7 +163,9 @@ def show_home_menu(system, items):
             body = _render_layout(system, items, selected_pos, width)
             subtitle = (
                 f"{system['subtitle']}  "
-                "[dim]↑↓/jk move · enter open · 1-9 jump · s simulate · b bench · h health · q quit[/]"
+                "[dim]↑↓[/] move  [dim]Enter[/] select  [dim]1-9[/] jump  "
+                "[dim]s[/] sim  [dim]b[/] bench  [dim]h[/] health  "
+                "[yellow]c[/] cleanup  [dim]q[/] quit"
             )
             if confirm_quit:
                 subtitle = (
@@ -169,6 +194,8 @@ def show_home_menu(system, items):
             if key in ("q", "esc", "ctrl-c"):
                 confirm_quit = True
                 continue
+            if key == "c":
+                return {"action": "cleanup"}
             if key == "s":
                 return {"action": "simulate"}
             if key == "b":
@@ -183,10 +210,14 @@ def show_home_menu(system, items):
                 selected_pos = selectable[max(0, idx - 1)]
             elif key == "enter" and selected_pos is not None:
                 item = items[selected_pos]
-                return {"action": item["action"], "repo": item.get("repo")}
+                return {**item, "action": item["action"], "repo": item.get("repo")}
             elif key.isdigit():
                 digit = int(key)
                 for item in items:
                     if item.get("index") == digit and item.get("selectable"):
-                        return {"action": item["action"], "repo": item.get("repo")}
+                        return {
+                            **item,
+                            "action": item["action"],
+                            "repo": item.get("repo"),
+                        }
     return None
